@@ -14,9 +14,11 @@ from src.models import BusinessLead
 from src.scrapers import GoogleSearchScraper, YellScraper, CompaniesHouseScraper, CompaniesHouseAPIScraper, GooglePlacesScraper
 from src.enricher import LeadEnricher
 from src.ai_scorer import AILeadScorer
-from src.utils import save_leads_to_csv, load_existing_keys, is_target_sector, set_verbose
+from src.utils import save_leads_to_csv, load_existing_keys, is_target_sector, set_verbose, load_existing_leads_for_dedup, is_duplicate_lead, add_lead_to_existing
 
 DEFAULT_TOWNS = ["Guildford", "Godalming", "Farnham", "Woking"]
+WELLNESS_TOWNS = ["Godalming", "Guildford", "Farnham", "Woking", "Haslemere", 
+                  "Cranleigh", "Milford", "Shalford", "Compton", "Bramley", "Hindhead"]
 DEFAULT_OUTPUT = "leads.csv"
 
 def create_scrapers(town: str, sector: str = "", use_api: bool = True, wellness_mode: bool = False) -> list:
@@ -43,7 +45,7 @@ def create_scrapers(town: str, sector: str = "", use_api: bool = True, wellness_
     
     return scrapers
 
-def scrape_town(town: str, sector: str, max_pages: int, enrich: bool = True, use_api: bool = True, ai_score: bool = True, wellness_mode: bool = False) -> List[BusinessLead]:
+def scrape_town(town: str, sector: str, max_pages: int, enrich: bool = True, use_api: bool = True, ai_score: bool = True, wellness_mode: bool = False, existing_data = None) -> List[BusinessLead]:
     print(f"\n{'='*60}")
     print(f"Scraping leads in: {town}")
     if wellness_mode:
@@ -54,6 +56,7 @@ def scrape_town(town: str, sector: str, max_pages: int, enrich: bool = True, use
     enricher = LeadEnricher() if enrich else None
     scorer = AILeadScorer(wellness_mode=wellness_mode) if ai_score else None
     leads = []
+    skipped_duplicates = 0
     
     if scorer and scorer.enabled:
         if wellness_mode:
@@ -69,14 +72,22 @@ def scrape_town(town: str, sector: str, max_pages: int, enrich: bool = True, use
         try:
             for lead in scraper.scrape(max_pages=max_pages):
                 if lead:
+                    if existing_data and is_duplicate_lead(lead, existing_data):
+                        skipped_duplicates += 1
+                        continue
+                    
                     if enricher:
                         lead = enricher.enrich(lead)
                     if scorer and scorer.enabled:
                         lead = scorer.score_lead(lead)
                     leads.append(lead)
+                    
+                    if existing_data:
+                        add_lead_to_existing(lead, existing_data)
+                    
                     scraper_leads += 1
                     score_info = f" [Score: {lead.ai_score}/10]" if lead.ai_score else ""
-                    print(f"    + {lead.company_name}{score_info}")
+                    print(f"    + {lead.company_name} ({town}){score_info}")
             
             if hasattr(scraper, 'api_failed') and scraper.api_failed:
                 fallback_needed = True
@@ -85,7 +96,7 @@ def scrape_town(town: str, sector: str, max_pages: int, enrich: bool = True, use
             print(f"  Error with {scraper.get_source_name()}: {e}")
         
         if scraper_leads > 0:
-            print(f"  [{scraper.get_source_name()}] Found {scraper_leads} leads")
+            print(f"  [{scraper.get_source_name()}] Found {scraper_leads} new leads")
     
     if fallback_needed:
         print(f"\n[Companies House Web] Falling back to web scraper...")
@@ -93,15 +104,26 @@ def scrape_town(town: str, sector: str, max_pages: int, enrich: bool = True, use
         try:
             for lead in fallback_scraper.scrape(max_pages=max_pages):
                 if lead:
+                    if existing_data and is_duplicate_lead(lead, existing_data):
+                        skipped_duplicates += 1
+                        continue
+                    
                     if enricher:
                         lead = enricher.enrich(lead)
                     if scorer and scorer.enabled:
                         lead = scorer.score_lead(lead)
                     leads.append(lead)
+                    
+                    if existing_data:
+                        add_lead_to_existing(lead, existing_data)
+                    
                     score_info = f" [Score: {lead.ai_score}/10]" if lead.ai_score else ""
-                    print(f"    + {lead.company_name}{score_info}")
+                    print(f"    + {lead.company_name} ({town}){score_info}")
         except Exception as e:
             print(f"  Error with fallback scraper: {e}")
+    
+    if skipped_duplicates > 0:
+        print(f"  [Dedup] Skipped {skipped_duplicates} duplicates from existing data")
     
     return leads
 
@@ -194,7 +216,12 @@ Examples:
     print(f"Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("="*60)
     
-    towns = [args.town] if args.town else DEFAULT_TOWNS
+    if args.town:
+        towns = [args.town]
+    elif args.wellness:
+        towns = WELLNESS_TOWNS
+    else:
+        towns = DEFAULT_TOWNS
     
     api_key_present = bool(os.environ.get("COMPANIES_HOUSE_API_KEY"))
     places_key_present = bool(os.environ.get("GOOGLE_MAPS_API_KEY"))
@@ -220,6 +247,7 @@ Examples:
         print(f"\nRemoved existing file: {args.output}")
     
     existing_keys = load_existing_keys(args.output) if not args.dry_run else set()
+    existing_data = load_existing_leads_for_dedup(args.output) if not args.dry_run else None
     print(f"Existing leads in file: {len(existing_keys)}")
     
     all_leads = []
@@ -233,7 +261,8 @@ Examples:
                 enrich=not args.no_enrich,
                 use_api=api_key_present or places_key_present,
                 ai_score=openai_key_present,
-                wellness_mode=args.wellness
+                wellness_mode=args.wellness,
+                existing_data=existing_data
             )
             all_leads.extend(leads)
             

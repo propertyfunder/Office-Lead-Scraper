@@ -17,9 +17,22 @@ class BusinessLead:
     tag: str = ""
     phone: str = ""
     google_rating: str = ""
+    place_id: str = ""
+    search_town: str = ""
     
     def to_dict(self) -> dict:
         return asdict(self)
     
     def get_key(self) -> str:
         return f"{self.company_name.lower().strip()}|{self.email.lower().strip()}"
+    
+    def get_website_key(self) -> str:
+        if not self.website:
+            return ""
+        website = self.website.lower().replace("http://", "").replace("https://", "").replace("www.", "").rstrip("/")
+        return website
+    
+    def get_name_location_key(self) -> str:
+        name = self.company_name.lower().strip()
+        location = self.location.lower().strip() if self.location else ""
+        return f"{name}|{location}"

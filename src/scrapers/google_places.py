@@ -19,6 +19,13 @@ class GooglePlacesScraper(BaseScraper):
             "Godalming": {"lat": 51.1859, "lng": -0.6174},
             "Farnham": {"lat": 51.2146, "lng": -0.7995},
             "Woking": {"lat": 51.3162, "lng": -0.5600},
+            "Haslemere": {"lat": 51.0892, "lng": -0.7117},
+            "Cranleigh": {"lat": 51.1414, "lng": -0.4831},
+            "Milford": {"lat": 51.1614, "lng": -0.6389},
+            "Shalford": {"lat": 51.2123, "lng": -0.5654},
+            "Compton": {"lat": 51.1928, "lng": -0.6200},
+            "Bramley": {"lat": 51.1800, "lng": -0.5500},
+            "Hindhead": {"lat": 51.1167, "lng": -0.7333},
         }
         
         self.search_types = [
@@ -99,7 +106,7 @@ class GooglePlacesScraper(BaseScraper):
                 headers = {
                     "Content-Type": "application/json",
                     "X-Goog-Api-Key": self.api_key,
-                    "X-Goog-FieldMask": "places.displayName,places.formattedAddress,places.nationalPhoneNumber,places.internationalPhoneNumber,places.websiteUri,places.rating,places.userRatingCount,places.types,places.businessStatus"
+                    "X-Goog-FieldMask": "places.id,places.displayName,places.formattedAddress,places.nationalPhoneNumber,places.internationalPhoneNumber,places.websiteUri,places.rating,places.userRatingCount,places.types,places.businessStatus"
                 }
                 
                 data = {
@@ -136,7 +143,8 @@ class GooglePlacesScraper(BaseScraper):
                     if lead:
                         if self.wellness_mode:
                             if self._is_wellness_service(place):
-                                lead.tag = "wellness" if not self._is_clinic_type(place) else "clinic-target"
+                                base_tag = "wellness" if not self._is_clinic_type(place) else "clinic-target"
+                                lead.tag = f"{base_tag}|{self.town}"
                                 total_found += 1
                                 yield lead
                         elif self._is_professional_service(place):
@@ -197,6 +205,7 @@ class GooglePlacesScraper(BaseScraper):
             rating = place.get("rating")
             review_count = place.get("userRatingCount", 0)
             types = place.get("types", [])
+            place_id = place.get("id", "")
             
             location = self._extract_location(address)
             sector = self._types_to_sector(types, self.wellness_mode)
@@ -212,7 +221,9 @@ class GooglePlacesScraper(BaseScraper):
                 phone=phone,
                 location=location,
                 source=self.source_name,
-                google_rating=google_rating
+                google_rating=google_rating,
+                place_id=place_id,
+                search_town=self.town
             )
         except Exception as e:
             log_verbose(f"Error parsing place: {e}")
@@ -224,8 +235,12 @@ class GooglePlacesScraper(BaseScraper):
         
         parts = [p.strip() for p in address.split(",")]
         
+        known_towns = ["Guildford", "Godalming", "Farnham", "Woking", "Haslemere", 
+                       "Cranleigh", "Milford", "Shalford", "Compton", "Bramley", 
+                       "Hindhead", "Surrey"]
+        
         for i, part in enumerate(parts):
-            if any(town.lower() in part.lower() for town in ["Guildford", "Godalming", "Farnham", "Woking", "Surrey"]):
+            if any(town.lower() in part.lower() for town in known_towns):
                 relevant = parts[max(0, i-1):i+2]
                 return ", ".join(relevant)
         

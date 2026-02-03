@@ -84,7 +84,8 @@ def save_leads_to_csv(leads: List[BusinessLead], filepath: str, mode: str = 'a')
     fieldnames = [
         'company_name', 'website', 'sector', 'contact_name', 
         'email', 'phone', 'linkedin', 'location', 'employee_count', 
-        'source', 'ai_score', 'ai_reason', 'tag', 'google_rating'
+        'source', 'ai_score', 'ai_reason', 'tag', 'google_rating',
+        'place_id', 'search_town'
     ]
     with open(filepath, mode, newline='', encoding='utf-8') as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -104,6 +105,65 @@ def load_existing_keys(filepath: str) -> Set[str]:
             email = row.get('email', '').lower().strip()
             keys.add(f"{name}|{email}")
     return keys
+
+def load_existing_leads_for_dedup(filepath: str) -> dict:
+    existing = {
+        'name_location': set(),
+        'websites': set(),
+        'place_ids': set(),
+        'names': set()
+    }
+    if not os.path.exists(filepath):
+        return existing
+    with open(filepath, 'r', encoding='utf-8') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            name = row.get('company_name', '').lower().strip()
+            location = row.get('location', '').lower().strip()
+            website = row.get('website', '').lower().replace("http://", "").replace("https://", "").replace("www.", "").rstrip("/")
+            place_id = row.get('place_id', '').strip()
+            
+            existing['names'].add(name)
+            if name and location:
+                existing['name_location'].add(f"{name}|{location}")
+            if website:
+                existing['websites'].add(website)
+            if place_id:
+                existing['place_ids'].add(place_id)
+    return existing
+
+def is_duplicate_lead(lead, existing_data: dict) -> bool:
+    name = lead.company_name.lower().strip()
+    if name in existing_data['names']:
+        return True
+    
+    name_loc_key = lead.get_name_location_key()
+    if name_loc_key and name_loc_key in existing_data['name_location']:
+        return True
+    
+    website_key = lead.get_website_key()
+    if website_key and website_key in existing_data['websites']:
+        return True
+    
+    if lead.place_id and lead.place_id in existing_data['place_ids']:
+        return True
+    
+    return False
+
+def add_lead_to_existing(lead, existing_data: dict):
+    name = lead.company_name.lower().strip()
+    existing_data['names'].add(name)
+    
+    name_loc_key = lead.get_name_location_key()
+    if name_loc_key:
+        existing_data['name_location'].add(name_loc_key)
+    
+    website_key = lead.get_website_key()
+    if website_key:
+        existing_data['websites'].add(website_key)
+    
+    if lead.place_id:
+        existing_data['place_ids'].add(lead.place_id)
 
 def is_target_sector(description: str) -> bool:
     target_keywords = [
