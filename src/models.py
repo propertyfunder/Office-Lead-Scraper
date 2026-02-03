@@ -19,6 +19,7 @@ class BusinessLead:
     google_rating: str = ""
     place_id: str = ""
     search_town: str = ""
+    category: str = ""  # 'unit8' for wellness/clinical, 'office' for general office
     
     def to_dict(self) -> dict:
         return asdict(self)

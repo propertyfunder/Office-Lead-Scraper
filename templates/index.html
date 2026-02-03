@@ -5,24 +5,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Business Leads Dashboard</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
         
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background: #f5f7fa;
             color: #333;
             line-height: 1.6;
         }
         
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
-            padding: 20px;
-        }
+        .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
         
         header {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -31,113 +23,120 @@
             margin-bottom: 30px;
         }
         
-        header h1 {
-            font-size: 2rem;
-            font-weight: 600;
+        header h1 { font-size: 2rem; font-weight: 600; }
+        header p { opacity: 0.9; margin-top: 5px; }
+        
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
         }
         
-        header p {
-            opacity: 0.9;
-            margin-top: 5px;
+        .tab-btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px 8px 0 0;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 500;
+            background: #e2e8f0;
+            color: #475569;
+            transition: all 0.2s;
         }
+        
+        .tab-btn.active {
+            background: white;
+            color: #667eea;
+            box-shadow: 0 -2px 8px rgba(0,0,0,0.08);
+        }
+        
+        .tab-btn:hover:not(.active) { background: #cbd5e1; }
+        
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
         
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 20px;
-            margin-bottom: 30px;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
         }
         
         .stat-card {
             background: white;
-            padding: 20px;
-            border-radius: 12px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            padding: 15px;
+            border-radius: 10px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.06);
             text-align: center;
         }
         
         .stat-card .number {
-            font-size: 2.5rem;
+            font-size: 2rem;
             font-weight: 700;
             color: #667eea;
         }
         
         .stat-card .label {
-            font-size: 0.9rem;
+            font-size: 0.85rem;
             color: #666;
-            margin-top: 5px;
+            margin-top: 3px;
         }
         
-        .stat-card.wellness .number { color: #10b981; }
-        .stat-card.clinic .number { color: #f59e0b; }
-        
-        .filters {
+        .toolbar {
             background: white;
-            padding: 20px;
-            border-radius: 12px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-            margin-bottom: 20px;
+            padding: 15px;
+            border-radius: 10px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+            margin-bottom: 15px;
             display: flex;
-            gap: 15px;
+            gap: 12px;
             flex-wrap: wrap;
             align-items: center;
         }
         
-        .filters input, .filters select {
-            padding: 10px 15px;
+        .toolbar input, .toolbar select {
+            padding: 10px 14px;
             border: 1px solid #ddd;
-            border-radius: 8px;
-            font-size: 0.95rem;
+            border-radius: 6px;
+            font-size: 0.9rem;
             outline: none;
         }
         
-        .filters input:focus, .filters select:focus {
-            border-color: #667eea;
-        }
-        
-        .filters input[type="text"] {
-            flex: 1;
-            min-width: 200px;
-        }
+        .toolbar input:focus, .toolbar select:focus { border-color: #667eea; }
+        .toolbar input[type="text"] { flex: 1; min-width: 180px; }
         
         .btn {
-            padding: 10px 20px;
+            padding: 10px 18px;
             background: #667eea;
             color: white;
             border: none;
-            border-radius: 8px;
+            border-radius: 6px;
             cursor: pointer;
-            font-size: 0.95rem;
+            font-size: 0.9rem;
             transition: background 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
         }
         
-        .btn:hover {
-            background: #5a67d8;
-        }
-        
-        .btn-secondary {
-            background: #6b7280;
-        }
-        
-        .btn-secondary:hover {
-            background: #4b5563;
-        }
+        .btn:hover { background: #5a67d8; }
+        .btn-secondary { background: #6b7280; }
+        .btn-secondary:hover { background: #4b5563; }
+        .btn-success { background: #10b981; }
+        .btn-success:hover { background: #059669; }
         
         .table-wrapper {
             background: white;
-            border-radius: 12px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            border-radius: 10px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.06);
             overflow: hidden;
         }
         
-        table {
-            width: 100%;
-            border-collapse: collapse;
-        }
+        table { width: 100%; border-collapse: collapse; }
         
         th {
             background: #f8fafc;
-            padding: 15px;
+            padding: 12px;
             text-align: left;
             font-weight: 600;
             color: #475569;
@@ -147,103 +146,59 @@
         }
         
         td {
-            padding: 12px 15px;
+            padding: 10px 12px;
             border-bottom: 1px solid #f1f5f9;
             vertical-align: top;
         }
         
-        tr:hover {
-            background: #f8fafc;
-        }
+        tr:hover { background: #f8fafc; }
         
-        .company-name {
-            font-weight: 600;
-            color: #1e293b;
-        }
+        .company-name { font-weight: 600; color: #1e293b; }
         
-        .tag {
-            display: inline-block;
-            padding: 3px 10px;
-            border-radius: 20px;
-            font-size: 0.75rem;
-            font-weight: 500;
-            text-transform: uppercase;
-        }
+        .contact-info { font-size: 0.85rem; color: #64748b; }
+        .contact-info a { color: #667eea; text-decoration: none; }
+        .contact-info a:hover { text-decoration: underline; }
         
-        .tag-wellness {
-            background: #d1fae5;
-            color: #065f46;
-        }
-        
-        .tag-clinic-target {
-            background: #fef3c7;
-            color: #92400e;
-        }
+        .location { font-size: 0.85rem; color: #64748b; }
         
         .score {
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            width: 36px;
-            height: 36px;
+            width: 32px;
+            height: 32px;
             border-radius: 50%;
             font-weight: 700;
-            font-size: 0.9rem;
+            font-size: 0.85rem;
         }
         
         .score-high { background: #d1fae5; color: #065f46; }
         .score-medium { background: #fef3c7; color: #92400e; }
         .score-low { background: #fee2e2; color: #991b1b; }
         
-        .contact-info {
-            font-size: 0.85rem;
-            color: #64748b;
+        .category-badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 0.7rem;
+            font-weight: 600;
+            text-transform: uppercase;
         }
         
-        .contact-info a {
-            color: #667eea;
-            text-decoration: none;
-        }
-        
-        .contact-info a:hover {
-            text-decoration: underline;
-        }
-        
-        .location {
-            font-size: 0.85rem;
-            color: #64748b;
-        }
-        
-        .rating {
-            color: #f59e0b;
-            font-size: 0.85rem;
-        }
-        
-        .ai-reason {
-            font-size: 0.8rem;
-            color: #94a3b8;
-            max-width: 200px;
-        }
+        .category-unit8 { background: #dbeafe; color: #1e40af; }
+        .category-office { background: #e0e7ff; color: #3730a3; }
         
         .empty-state {
             text-align: center;
-            padding: 60px 20px;
+            padding: 50px 20px;
             color: #64748b;
         }
         
-        .empty-state h3 {
-            font-size: 1.25rem;
-            margin-bottom: 10px;
-        }
+        .empty-state h3 { font-size: 1.2rem; margin-bottom: 8px; }
         
         @media (max-width: 768px) {
-            .table-wrapper {
-                overflow-x: auto;
-            }
-            
-            table {
-                min-width: 900px;
-            }
+            .table-wrapper { overflow-x: auto; }
+            table { min-width: 800px; }
         }
     </style>
 </head>
@@ -251,194 +206,237 @@
     <header>
         <div class="container">
             <h1>Business Leads Dashboard</h1>
-            <p>Lead generation for office leasing in Surrey, UK</p>
+            <p>Godalming Business Centre - Lead Generation</p>
         </div>
     </header>
     
     <div class="container">
-        <div class="stats-grid">
-            <div class="stat-card">
-                <div class="number">{{ stats.total }}</div>
-                <div class="label">Total Leads</div>
+        <div class="tabs">
+            <button class="tab-btn active" onclick="switchTab('unit8')">Unit 8 Occupiers ({{ unit8_stats.total }})</button>
+            <button class="tab-btn" onclick="switchTab('office')">Office Occupiers ({{ office_stats.total }})</button>
+        </div>
+        
+        <!-- Unit 8 Tab -->
+        <div id="unit8-tab" class="tab-content active">
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="number">{{ unit8_stats.total }}</div>
+                    <div class="label">Total Leads</div>
+                </div>
+                <div class="stat-card">
+                    <div class="number">{{ unit8_stats.with_email }}</div>
+                    <div class="label">With Email</div>
+                </div>
+                <div class="stat-card">
+                    <div class="number">{{ unit8_stats.with_contact }}</div>
+                    <div class="label">Named Contacts</div>
+                </div>
+                <div class="stat-card">
+                    <div class="number">{{ unit8_stats.avg_score }}</div>
+                    <div class="label">Avg Score</div>
+                </div>
             </div>
-            <div class="stat-card wellness">
-                <div class="number">{{ stats.wellness }}</div>
-                <div class="label">Wellness Leads</div>
+            
+            <div class="toolbar">
+                <input type="text" id="unit8-search" placeholder="Search company, sector, location...">
+                <select id="unit8-score">
+                    <option value="">All Scores</option>
+                    <option value="8">8+ Score</option>
+                    <option value="7">7+ Score</option>
+                    <option value="5">5+ Score</option>
+                </select>
+                <button class="btn" onclick="filterLeads('unit8')">Filter</button>
+                <button class="btn btn-secondary" onclick="resetFilter('unit8')">Reset</button>
+                <button class="btn btn-success" onclick="downloadCSV('unit8')">Download Unit 8 Leads</button>
             </div>
-            <div class="stat-card clinic">
-                <div class="number">{{ stats.clinic }}</div>
-                <div class="label">Clinic Targets</div>
-            </div>
-            <div class="stat-card">
-                <div class="number">{{ stats.avg_score }}</div>
-                <div class="label">Avg AI Score</div>
-            </div>
-            <div class="stat-card">
-                <div class="number">{{ stats.with_phone }}</div>
-                <div class="label">With Phone</div>
-            </div>
-            <div class="stat-card">
-                <div class="number">{{ stats.with_website }}</div>
-                <div class="label">With Website</div>
+            
+            <div class="table-wrapper">
+                {% if unit8_leads %}
+                <table id="unit8-table">
+                    <thead>
+                        <tr>
+                            <th>Business</th>
+                            <th>Category</th>
+                            <th>Location</th>
+                            <th>Website</th>
+                            <th>Contact</th>
+                            <th>Email</th>
+                            <th>Score</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for lead in unit8_leads %}
+                        <tr>
+                            <td class="company-name">{{ lead.company_name }}</td>
+                            <td>{{ lead.sector or '-' }}</td>
+                            <td class="location">{{ lead.location or '-' }}</td>
+                            <td class="contact-info">
+                                {% if lead.website %}<a href="{{ lead.website }}" target="_blank">{{ lead.website[:35] }}{% if lead.website|length > 35 %}...{% endif %}</a>{% else %}-{% endif %}
+                            </td>
+                            <td>{{ lead.contact_name or '-' }}</td>
+                            <td class="contact-info">{{ lead.email or '-' }}</td>
+                            <td>
+                                {% if lead.ai_score %}
+                                <span class="score {% if lead.ai_score|int >= 8 %}score-high{% elif lead.ai_score|int >= 5 %}score-medium{% else %}score-low{% endif %}">{{ lead.ai_score }}</span>
+                                {% else %}-{% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}
+                <div class="empty-state">
+                    <h3>No Unit 8 leads yet</h3>
+                    <p>Run: <code>python main.py --wellness</code></p>
+                </div>
+                {% endif %}
             </div>
         </div>
         
-        <div class="filters">
-            <input type="text" id="searchInput" placeholder="Search company, sector, location...">
-            <select id="tagFilter">
-                <option value="">All Tags</option>
-                <option value="wellness">Wellness</option>
-                <option value="clinic-target">Clinic Target</option>
-            </select>
-            <select id="scoreFilter">
-                <option value="">All Scores</option>
-                <option value="8">8+ Score</option>
-                <option value="7">7+ Score</option>
-                <option value="5">5+ Score</option>
-            </select>
-            <button class="btn" onclick="applyFilters()">Filter</button>
-            <button class="btn btn-secondary" onclick="resetFilters()">Reset</button>
-            <button class="btn btn-secondary" onclick="refreshData()">Refresh</button>
-        </div>
-        
-        <div class="table-wrapper">
-            {% if leads %}
-            <table id="leadsTable">
-                <thead>
-                    <tr>
-                        <th>Company</th>
-                        <th>Sector</th>
-                        <th>Location</th>
-                        <th>Contact</th>
-                        <th>Score</th>
-                        <th>Tag</th>
-                        <th>Rating</th>
-                        <th>AI Notes</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for lead in leads %}
-                    <tr>
-                        <td>
-                            <div class="company-name">{{ lead.company_name }}</div>
-                            {% if lead.website %}
-                            <div class="contact-info">
-                                <a href="{{ lead.website }}" target="_blank">{{ lead.website[:40] }}{% if lead.website|length > 40 %}...{% endif %}</a>
-                            </div>
-                            {% endif %}
-                        </td>
-                        <td>{{ lead.sector or '-' }}</td>
-                        <td class="location">{{ lead.location or '-' }}</td>
-                        <td class="contact-info">
-                            {% if lead.phone %}<div>{{ lead.phone }}</div>{% endif %}
-                            {% if lead.email %}<div>{{ lead.email }}</div>{% endif %}
-                            {% if lead.contact_name %}<div>{{ lead.contact_name }}</div>{% endif %}
-                        </td>
-                        <td>
-                            {% if lead.ai_score %}
-                            <span class="score {% if lead.ai_score|int >= 8 %}score-high{% elif lead.ai_score|int >= 5 %}score-medium{% else %}score-low{% endif %}">
-                                {{ lead.ai_score }}
-                            </span>
-                            {% else %}
-                            -
-                            {% endif %}
-                        </td>
-                        <td>
-                            {% if lead.tag %}
-                            <span class="tag tag-{{ lead.tag }}">{{ lead.tag }}</span>
-                            {% endif %}
-                        </td>
-                        <td class="rating">{{ lead.google_rating or '-' }}</td>
-                        <td class="ai-reason">{{ lead.ai_reason or '-' }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-            {% else %}
-            <div class="empty-state">
-                <h3>No leads yet</h3>
-                <p>Run the scraper to collect leads: <code>python main.py --wellness</code></p>
+        <!-- Office Tab -->
+        <div id="office-tab" class="tab-content">
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="number">{{ office_stats.total }}</div>
+                    <div class="label">Total Leads</div>
+                </div>
+                <div class="stat-card">
+                    <div class="number">{{ office_stats.with_email }}</div>
+                    <div class="label">With Email</div>
+                </div>
+                <div class="stat-card">
+                    <div class="number">{{ office_stats.with_contact }}</div>
+                    <div class="label">Named Contacts</div>
+                </div>
+                <div class="stat-card">
+                    <div class="number">{{ office_stats.avg_score }}</div>
+                    <div class="label">Avg Score</div>
+                </div>
             </div>
-            {% endif %}
+            
+            <div class="toolbar">
+                <input type="text" id="office-search" placeholder="Search company, sector, location...">
+                <select id="office-score">
+                    <option value="">All Scores</option>
+                    <option value="8">8+ Score</option>
+                    <option value="7">7+ Score</option>
+                    <option value="5">5+ Score</option>
+                </select>
+                <button class="btn" onclick="filterLeads('office')">Filter</button>
+                <button class="btn btn-secondary" onclick="resetFilter('office')">Reset</button>
+                <button class="btn btn-success" onclick="downloadCSV('office')">Download Office Leads</button>
+            </div>
+            
+            <div class="table-wrapper">
+                {% if office_leads %}
+                <table id="office-table">
+                    <thead>
+                        <tr>
+                            <th>Business</th>
+                            <th>Category</th>
+                            <th>Location</th>
+                            <th>Website</th>
+                            <th>Contact</th>
+                            <th>Email</th>
+                            <th>Score</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for lead in office_leads %}
+                        <tr>
+                            <td class="company-name">{{ lead.company_name }}</td>
+                            <td>{{ lead.sector or '-' }}</td>
+                            <td class="location">{{ lead.location or '-' }}</td>
+                            <td class="contact-info">
+                                {% if lead.website %}<a href="{{ lead.website }}" target="_blank">{{ lead.website[:35] }}{% if lead.website|length > 35 %}...{% endif %}</a>{% else %}-{% endif %}
+                            </td>
+                            <td>{{ lead.contact_name or '-' }}</td>
+                            <td class="contact-info">{{ lead.email or '-' }}</td>
+                            <td>
+                                {% if lead.ai_score %}
+                                <span class="score {% if lead.ai_score|int >= 8 %}score-high{% elif lead.ai_score|int >= 5 %}score-medium{% else %}score-low{% endif %}">{{ lead.ai_score }}</span>
+                                {% else %}-{% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}
+                <div class="empty-state">
+                    <h3>No Office leads yet</h3>
+                    <p>Run: <code>python main.py</code></p>
+                </div>
+                {% endif %}
+            </div>
         </div>
     </div>
     
     <script>
-        function applyFilters() {
-            const search = document.getElementById('searchInput').value;
-            const tag = document.getElementById('tagFilter').value;
-            const minScore = document.getElementById('scoreFilter').value;
+        function switchTab(tab) {
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+            
+            event.target.classList.add('active');
+            document.getElementById(tab + '-tab').classList.add('active');
+        }
+        
+        function filterLeads(category) {
+            const search = document.getElementById(category + '-search').value;
+            const minScore = document.getElementById(category + '-score').value;
             
             const params = new URLSearchParams();
+            params.set('category', category);
             if (search) params.set('search', search);
-            if (tag) params.set('tag', tag);
             if (minScore) params.set('min_score', minScore);
             
             fetch('/api/leads?' + params.toString())
                 .then(r => r.json())
-                .then(data => updateTable(data.leads));
+                .then(data => updateTable(category, data.leads));
         }
         
-        function resetFilters() {
-            document.getElementById('searchInput').value = '';
-            document.getElementById('tagFilter').value = '';
-            document.getElementById('scoreFilter').value = '';
-            refreshData();
+        function resetFilter(category) {
+            document.getElementById(category + '-search').value = '';
+            document.getElementById(category + '-score').value = '';
+            location.reload();
         }
         
-        function refreshData() {
-            fetch('/api/refresh')
-                .then(r => r.json())
-                .then(data => {
-                    updateStats(data.stats);
-                    updateTable(data.leads);
-                });
+        function downloadCSV(category) {
+            window.location.href = '/api/download/' + category;
         }
         
-        function updateStats(stats) {
-            const statCards = document.querySelectorAll('.stat-card .number');
-            const values = [stats.total, stats.wellness, stats.clinic, stats.avg_score, stats.with_phone, stats.with_website];
-            statCards.forEach((card, i) => {
-                if (values[i] !== undefined) card.textContent = values[i];
-            });
-        }
-        
-        function updateTable(leads) {
-            const tbody = document.querySelector('#leadsTable tbody');
+        function updateTable(category, leads) {
+            const tbody = document.querySelector('#' + category + '-table tbody');
             if (!tbody) return;
             
             if (leads.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:40px;">No leads match your filters</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;">No leads match your filters</td></tr>';
                 return;
             }
             
             tbody.innerHTML = leads.map(lead => `
                 <tr>
-                    <td>
-                        <div class="company-name">${lead.company_name || ''}</div>
-                        ${lead.website ? `<div class="contact-info"><a href="${lead.website}" target="_blank">${lead.website.substring(0,40)}${lead.website.length > 40 ? '...' : ''}</a></div>` : ''}
-                    </td>
+                    <td class="company-name">${lead.company_name || ''}</td>
                     <td>${lead.sector || '-'}</td>
                     <td class="location">${lead.location || '-'}</td>
                     <td class="contact-info">
-                        ${lead.phone ? `<div>${lead.phone}</div>` : ''}
-                        ${lead.email ? `<div>${lead.email}</div>` : ''}
-                        ${lead.contact_name ? `<div>${lead.contact_name}</div>` : ''}
+                        ${lead.website ? `<a href="${lead.website}" target="_blank">${lead.website.substring(0,35)}${lead.website.length > 35 ? '...' : ''}</a>` : '-'}
                     </td>
+                    <td>${lead.contact_name || '-'}</td>
+                    <td class="contact-info">${lead.email || '-'}</td>
                     <td>
                         ${lead.ai_score ? `<span class="score ${parseInt(lead.ai_score) >= 8 ? 'score-high' : parseInt(lead.ai_score) >= 5 ? 'score-medium' : 'score-low'}">${lead.ai_score}</span>` : '-'}
                     </td>
-                    <td>
-                        ${lead.tag ? `<span class="tag tag-${lead.tag}">${lead.tag}</span>` : ''}
-                    </td>
-                    <td class="rating">${lead.google_rating || '-'}</td>
-                    <td class="ai-reason">${lead.ai_reason || '-'}</td>
                 </tr>
             `).join('');
         }
         
-        document.getElementById('searchInput').addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') applyFilters();
+        ['unit8', 'office'].forEach(cat => {
+            const input = document.getElementById(cat + '-search');
+            if (input) {
+                input.addEventListener('keypress', function(e) {
+                    if (e.key === 'Enter') filterLeads(cat);
+                });
+            }
         });
     </script>
 </body>

@@ -1,0 +1,75 @@
+Please upgrade the scraper to include a simple UI and smarter data handling.
+
+### 1. User Interface (UI)
+- When the program is run, automatically **load and display the existing leads database** from the CSV.
+- Build a basic UI with two **separate tabs or views**:
+  - **"Unit 8 Occupiers"** — for clinical, wellness, and therapy businesses
+  - **"Office Occupiers"** — for general office-using businesses
+- Each tab should show a table of results including:
+  - Business name, category, location, website, named contact, email, suitability score
+
+- ✅ **Add a download button** in each tab to export that filtered set as CSV:
+  - e.g. `Download Unit 8 Leads`, `Download Office Leads`
+
+Use Streamlit or Flask for the UI — whichever is faster to implement in Replit.
+
+---
+
+### 2. Occupier Types (Categories)
+
+#### A. Unit 8 Occupiers  
+Continue existing coverage:
+- Physiotherapy, osteopathy, chiropractic, private GPs, dentists
+- Psychotherapists, counsellors, holistic therapy, massage
+- Pilates, yoga, wellness studios
+
+#### B. Office Occupiers (Widened)
+Target **any business type likely to require small professional office space (1–20 people)**. Examples:
+- Legal & accounting firms
+- Architects, planning consultants, engineers
+- Recruiters, HR consultancies
+- Management & strategy consultants
+- Software & SaaS businesses
+- IT services, MSPs, cybersecurity firms
+- Marketing, PR, creative agencies
+- Business services (training, coaching, compliance)
+- ESG and sustainability consultants
+- Finance brokers, IFAs, small corporate finance firms
+
+You can continue using Google Places API to find these types using keywords like:
+- `software company`, `engineering consultancy`, `branding agency`, `financial adviser`, `planning consultancy`, `cybersecurity`, `project management`, etc.
+
+---
+
+### 3. Geography
+Both occupier categories should be searched in:
+- Godalming, Guildford, Farnham, Woking, Haslemere, Cranleigh, Milford, Shalford, Compton, Bramley, Hindhead
+
+---
+
+### 4. Enrichment Rules (Applies to ALL Leads)
+- Only save leads that have:
+  - ✅ A valid email address
+  - ✅ A named contact (Director, Founder, Principal, or MD)
+- Extract this info from the business website or enrich with OpenAI if needed.
+
+---
+
+### 5. Deduplication
+Avoid reprocessing previously seen leads. Treat a business as a duplicate if:
+- It has the same business name + town
+- OR the same domain/website
+- OR the same Google Place ID
+
+Only enrich and save truly new leads.
+
+---
+
+### 6. Output Logic
+- Save everything into a single `leads.csv` file
+- Add a `category` field with either `unit8` or `office`
+- UI should allow viewing + downloading each category separately
+
+---
+
+End goal: A semi-automated tool that scrapes, enriches, classifies and displays new leads in a clean, deduplicated UI with CSV download options — split clearly between wellness occupiers (for Unit 8) and general office tenants.

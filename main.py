@@ -80,6 +80,7 @@ def scrape_town(town: str, sector: str, max_pages: int, enrich: bool = True, use
                         lead = enricher.enrich(lead)
                     if scorer and scorer.enabled:
                         lead = scorer.score_lead(lead)
+                    lead.category = "unit8" if wellness_mode else "office"
                     leads.append(lead)
                     
                     if existing_data:
@@ -112,6 +113,7 @@ def scrape_town(town: str, sector: str, max_pages: int, enrich: bool = True, use
                         lead = enricher.enrich(lead)
                     if scorer and scorer.enabled:
                         lead = scorer.score_lead(lead)
+                    lead.category = "unit8" if wellness_mode else "office"
                     leads.append(lead)
                     
                     if existing_data:
