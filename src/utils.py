@@ -184,7 +184,8 @@ def make_request_with_retry(
             return response, ""
             
         except requests.exceptions.HTTPError as e:
-            last_error = f"HTTP {response.status_code}: {str(e)}"
+            status_code = getattr(e.response, 'status_code', 'unknown') if hasattr(e, 'response') else 'unknown'
+            last_error = f"HTTP {status_code}: {str(e)}"
             log_verbose(f"HTTP error: {last_error}")
         except requests.exceptions.ConnectionError as e:
             last_error = f"Connection error: {str(e)}"
