@@ -83,7 +83,8 @@ def save_leads_to_csv(leads: List[BusinessLead], filepath: str, mode: str = 'a')
     file_exists = os.path.exists(filepath) and os.path.getsize(filepath) > 0
     fieldnames = [
         'company_name', 'website', 'sector', 'contact_name', 
-        'email', 'linkedin', 'location', 'employee_count', 'source'
+        'email', 'phone', 'linkedin', 'location', 'employee_count', 
+        'source', 'ai_score', 'ai_reason', 'tag', 'google_rating'
     ]
     with open(filepath, mode, newline='', encoding='utf-8') as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)

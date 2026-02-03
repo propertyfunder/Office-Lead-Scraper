@@ -7,11 +7,12 @@ from ..models import BusinessLead
 from ..utils import rate_limit, clean_text, log_verbose
 
 class GooglePlacesScraper(BaseScraper):
-    def __init__(self, town: str, sector: str = "", api_key: str = ""):
+    def __init__(self, town: str, sector: str = "", api_key: str = "", wellness_mode: bool = False):
         super().__init__(town, sector)
         self.source_name = "Google Places"
         self.api_key = api_key or os.environ.get("GOOGLE_MAPS_API_KEY", "")
         self.base_url = "https://places.googleapis.com/v1/places:searchText"
+        self.wellness_mode = wellness_mode
         
         self.town_coords = {
             "Guildford": {"lat": 51.2362, "lng": -0.5704},
@@ -31,6 +32,32 @@ class GooglePlacesScraper(BaseScraper):
             "consulting firms",
             "engineering companies",
             "architects",
+        ]
+        
+        self.wellness_search_types = [
+            "physiotherapy",
+            "physiotherapist",
+            "osteopath",
+            "chiropractor",
+            "private clinic",
+            "private GP",
+            "health clinic",
+            "dentist",
+            "cosmetic dentist",
+            "podiatrist",
+            "psychotherapist",
+            "mental health clinic",
+            "counselling",
+            "pilates studio",
+            "yoga class",
+            "yoga studio",
+            "massage therapy",
+            "acupuncture",
+            "holistic therapy",
+            "wellness centre",
+            "hypnotherapy",
+            "nutritionist",
+            "dietitian",
         ]
     
     def is_available(self) -> bool:
@@ -56,7 +83,12 @@ class GooglePlacesScraper(BaseScraper):
             return
         
         coords = self.town_coords.get(self.town) or self.town_coords["Guildford"]
-        search_terms = [self.sector] if self.sector else self.search_types
+        if self.sector:
+            search_terms = [self.sector]
+        elif self.wellness_mode:
+            search_terms = self.wellness_search_types
+        else:
+            search_terms = self.search_types
         total_found = 0
         
         for term in search_terms:
@@ -101,9 +133,15 @@ class GooglePlacesScraper(BaseScraper):
                 
                 for place in places:
                     lead = self._parse_place(place)
-                    if lead and self._is_professional_service(place):
-                        total_found += 1
-                        yield lead
+                    if lead:
+                        if self.wellness_mode:
+                            if self._is_wellness_service(place):
+                                lead.tag = "wellness" if not self._is_clinic_type(place) else "clinic-target"
+                                total_found += 1
+                                yield lead
+                        elif self._is_professional_service(place):
+                            total_found += 1
+                            yield lead
                 
                 rate_limit(0.3, 0.5)
                 
@@ -161,18 +199,20 @@ class GooglePlacesScraper(BaseScraper):
             types = place.get("types", [])
             
             location = self._extract_location(address)
-            sector = self._types_to_sector(types)
+            sector = self._types_to_sector(types, self.wellness_mode)
             
+            google_rating = ""
             if rating:
-                sector = f"{sector} (Rating: {rating}/5, {review_count} reviews)"
+                google_rating = f"{rating}/5 ({review_count} reviews)"
             
             return BusinessLead(
                 company_name=clean_text(name),
                 website=website,
                 sector=sector[:200],
-                email=phone,
+                phone=phone,
                 location=location,
-                source=self.source_name
+                source=self.source_name,
+                google_rating=google_rating
             )
         except Exception as e:
             log_verbose(f"Error parsing place: {e}")
@@ -194,7 +234,7 @@ class GooglePlacesScraper(BaseScraper):
         
         return address
     
-    def _types_to_sector(self, types: list) -> str:
+    def _types_to_sector(self, types: list, wellness_mode: bool = False) -> str:
         type_mapping = {
             "accounting": "Accountancy",
             "lawyer": "Legal Services",
@@ -208,12 +248,95 @@ class GooglePlacesScraper(BaseScraper):
             "engineering": "Engineering",
         }
         
+        wellness_mapping = {
+            "physiotherapist": "Physiotherapy",
+            "physical_therapist": "Physiotherapy",
+            "chiropractor": "Chiropractic",
+            "dentist": "Dental",
+            "doctor": "Health Clinic",
+            "health": "Health & Wellness",
+            "gym": "Fitness & Wellness",
+            "yoga": "Yoga Studio",
+            "pilates": "Pilates Studio",
+            "spa": "Wellness & Spa",
+            "massage": "Massage Therapy",
+            "acupuncture": "Acupuncture",
+            "psychologist": "Mental Health",
+            "counselor": "Counselling",
+            "therapist": "Therapy",
+            "podiatrist": "Podiatry",
+            "osteopath": "Osteopathy",
+            "nutritionist": "Nutrition",
+            "wellness": "Health & Wellness",
+        }
+        
+        mapping = wellness_mapping if wellness_mode else type_mapping
+        
         for place_type in types:
-            for key, sector in type_mapping.items():
+            for key, sector in mapping.items():
                 if key in place_type.lower():
                     return sector
         
+        if wellness_mode:
+            return "Health & Wellness"
         return "Professional Services"
+    
+    def _is_wellness_service(self, place: dict) -> bool:
+        wellness_types = [
+            "physiotherapist", "physical_therapist", "chiropractor", "dentist",
+            "doctor", "health", "gym", "yoga", "pilates", "spa", "massage",
+            "acupuncture", "psychologist", "counselor", "therapist", "podiatrist",
+            "osteopath", "nutritionist", "wellness", "medical", "clinic"
+        ]
+        
+        types = place.get("types", [])
+        types_lower = [t.lower() for t in types]
+        
+        for wellness_type in wellness_types:
+            if any(wellness_type in t for t in types_lower):
+                return True
+        
+        display_name = place.get("displayName", {})
+        name = display_name.get("text", "") if isinstance(display_name, dict) else str(display_name)
+        name_lower = name.lower()
+        
+        wellness_keywords = [
+            "physio", "osteo", "chiro", "pilates", "yoga", "massage", 
+            "wellness", "therapy", "clinic", "acupuncture", "holistic",
+            "counselling", "psycho", "mental health", "dental", "dentist"
+        ]
+        
+        for keyword in wellness_keywords:
+            if keyword in name_lower:
+                return True
+        
+        status = place.get("businessStatus", "")
+        if status and status != "OPERATIONAL":
+            return False
+        
+        return False
+    
+    def _is_clinic_type(self, place: dict) -> bool:
+        clinic_types = [
+            "dentist", "doctor", "physiotherapist", "physical_therapist",
+            "chiropractor", "osteopath", "podiatrist", "psychologist",
+            "medical", "clinic", "health"
+        ]
+        
+        types = place.get("types", [])
+        types_lower = [t.lower() for t in types]
+        
+        for clinic_type in clinic_types:
+            if any(clinic_type in t for t in types_lower):
+                return True
+        
+        display_name = place.get("displayName", {})
+        name = display_name.get("text", "") if isinstance(display_name, dict) else str(display_name)
+        name_lower = name.lower()
+        
+        clinic_keywords = ["clinic", "surgery", "practice", "medical", "dental", "health centre"]
+        
+        return any(keyword in name_lower for keyword in clinic_keywords)
     
     def _is_professional_service(self, place: dict) -> bool:
         excluded_types = [

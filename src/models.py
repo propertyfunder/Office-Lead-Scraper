@@ -14,6 +14,9 @@ class BusinessLead:
     source: str = ""
     ai_score: str = ""
     ai_reason: str = ""
+    tag: str = ""
+    phone: str = ""
+    google_rating: str = ""
     
     def to_dict(self) -> dict:
         return asdict(self)
