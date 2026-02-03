@@ -3,7 +3,7 @@ import random
 import re
 import os
 import csv
-from typing import List, Set, Optional
+from typing import List, Set, Optional, Tuple
 from fake_useragent import UserAgent
 import requests
 
@@ -11,18 +11,40 @@ from .models import BusinessLead
 
 ua = UserAgent()
 
-def get_headers() -> dict:
-    return {
+VERBOSE = False
+
+def set_verbose(verbose: bool):
+    global VERBOSE
+    VERBOSE = verbose
+
+def log_verbose(message: str):
+    if VERBOSE:
+        print(f"  [DEBUG] {message}")
+
+def get_headers(referer: str = "") -> dict:
+    headers = {
         "User-Agent": ua.random,
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-        "Accept-Language": "en-GB,en;q=0.5",
-        "Accept-Encoding": "gzip, deflate",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+        "Accept-Language": "en-GB,en-US;q=0.9,en;q=0.8",
+        "Accept-Encoding": "gzip, deflate, br",
         "Connection": "keep-alive",
         "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1",
+        "Cache-Control": "max-age=0",
+        "DNT": "1",
     }
+    if referer:
+        headers["Referer"] = referer
+        headers["Sec-Fetch-Site"] = "same-origin"
+    return headers
 
 def rate_limit(min_seconds: float = 1.0, max_seconds: float = 3.0):
-    time.sleep(random.uniform(min_seconds, max_seconds))
+    delay = random.uniform(min_seconds, max_seconds)
+    log_verbose(f"Rate limiting: waiting {delay:.1f}s")
+    time.sleep(delay)
 
 def clean_text(text: str) -> str:
     if not text:
@@ -104,11 +126,85 @@ def is_target_sector(description: str) -> bool:
         return False
     return any(keyword in desc_lower for keyword in target_keywords)
 
-def make_request(url: str, timeout: int = 15) -> Optional[requests.Response]:
-    try:
-        response = requests.get(url, headers=get_headers(), timeout=timeout)
-        response.raise_for_status()
-        return response
-    except requests.RequestException as e:
-        print(f"Request error for {url}: {e}")
-        return None
+def detect_block_or_captcha(response: requests.Response) -> Tuple[bool, str]:
+    if response.status_code == 403:
+        return True, "403 Forbidden - Access blocked"
+    if response.status_code == 429:
+        return True, "429 Too Many Requests - Rate limited"
+    
+    content_lower = response.text.lower()
+    
+    captcha_indicators = [
+        'captcha', 'recaptcha', 'hcaptcha', 'challenge-form',
+        'verify you are human', 'robot', 'automated access',
+        'unusual traffic', 'security check', 'access denied',
+        'blocked', 'forbidden'
+    ]
+    
+    for indicator in captcha_indicators:
+        if indicator in content_lower:
+            return True, f"Possible CAPTCHA/block detected: '{indicator}' found in response"
+    
+    if len(response.text) < 1000 and 'javascript' in content_lower:
+        return True, "Possible JavaScript challenge page (minimal content)"
+    
+    return False, ""
+
+def make_request_with_retry(
+    url: str, 
+    max_retries: int = 3, 
+    timeout: int = 15,
+    referer: str = ""
+) -> Tuple[Optional[requests.Response], str]:
+    backoff_times = [2, 5, 10]
+    last_error = ""
+    
+    for attempt in range(max_retries):
+        try:
+            log_verbose(f"Request attempt {attempt + 1}/{max_retries}: {url[:80]}...")
+            
+            headers = get_headers(referer)
+            response = requests.get(url, headers=headers, timeout=timeout)
+            
+            if response.status_code == 200:
+                is_blocked, block_reason = detect_block_or_captcha(response)
+                if is_blocked:
+                    log_verbose(f"Block detected: {block_reason}")
+                    last_error = block_reason
+                    if attempt < max_retries - 1:
+                        wait_time = backoff_times[min(attempt, len(backoff_times) - 1)]
+                        log_verbose(f"Waiting {wait_time}s before retry...")
+                        time.sleep(wait_time)
+                        continue
+                else:
+                    log_verbose(f"Success: {len(response.text)} bytes received")
+                    return response, ""
+            
+            response.raise_for_status()
+            return response, ""
+            
+        except requests.exceptions.HTTPError as e:
+            last_error = f"HTTP {response.status_code}: {str(e)}"
+            log_verbose(f"HTTP error: {last_error}")
+        except requests.exceptions.ConnectionError as e:
+            last_error = f"Connection error: {str(e)}"
+            log_verbose(f"Connection error: {last_error}")
+        except requests.exceptions.Timeout as e:
+            last_error = f"Timeout: {str(e)}"
+            log_verbose(f"Timeout: {last_error}")
+        except requests.RequestException as e:
+            last_error = str(e)
+            log_verbose(f"Request error: {last_error}")
+        
+        if attempt < max_retries - 1:
+            wait_time = backoff_times[min(attempt, len(backoff_times) - 1)]
+            log_verbose(f"Retrying in {wait_time}s...")
+            time.sleep(wait_time)
+    
+    return None, last_error
+
+def make_request(url: str, timeout: int = 15, referer: str = "") -> Optional[requests.Response]:
+    response, error = make_request_with_retry(url, max_retries=3, timeout=timeout, referer=referer)
+    if error:
+        print(f"Request failed for {url[:60]}...: {error}")
+    return response

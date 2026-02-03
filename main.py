@@ -11,53 +11,89 @@ from datetime import datetime
 from typing import List, Set
 
 from src.models import BusinessLead
-from src.scrapers import GoogleSearchScraper, YellScraper, CompaniesHouseScraper
+from src.scrapers import GoogleSearchScraper, YellScraper, CompaniesHouseScraper, CompaniesHouseAPIScraper
 from src.enricher import LeadEnricher
-from src.utils import save_leads_to_csv, load_existing_keys, is_target_sector
+from src.utils import save_leads_to_csv, load_existing_keys, is_target_sector, set_verbose
 
 DEFAULT_TOWNS = ["Guildford", "Godalming", "Farnham", "Woking"]
 DEFAULT_OUTPUT = "leads.csv"
 
-def create_scrapers(town: str, sector: str = "") -> list:
-    return [
-        YellScraper(town, sector),
-        CompaniesHouseScraper(town, sector),
-        GoogleSearchScraper(town, sector),
-    ]
+def create_scrapers(town: str, sector: str = "", use_api: bool = True) -> list:
+    scrapers = []
+    
+    if use_api:
+        api_scraper = CompaniesHouseAPIScraper(town, sector)
+        if api_scraper.is_available():
+            scrapers.append(api_scraper)
+        else:
+            scrapers.append(CompaniesHouseScraper(town, sector))
+    else:
+        scrapers.append(CompaniesHouseScraper(town, sector))
+    
+    scrapers.append(YellScraper(town, sector))
+    scrapers.append(GoogleSearchScraper(town, sector))
+    
+    return scrapers
 
-def scrape_town(town: str, sector: str, max_pages: int, enrich: bool = True) -> List[BusinessLead]:
+def scrape_town(town: str, sector: str, max_pages: int, enrich: bool = True, use_api: bool = True) -> List[BusinessLead]:
     print(f"\n{'='*60}")
     print(f"Scraping leads in: {town}")
     print(f"{'='*60}")
     
-    scrapers = create_scrapers(town, sector)
+    scrapers = create_scrapers(town, sector, use_api)
     enricher = LeadEnricher() if enrich else None
     leads = []
     
+    fallback_needed = False
+    
     for scraper in scrapers:
         print(f"\n[{scraper.get_source_name()}] Starting scrape...")
+        scraper_leads = 0
         try:
             for lead in scraper.scrape(max_pages=max_pages):
                 if lead:
                     if enricher:
                         lead = enricher.enrich(lead)
                     leads.append(lead)
-                    print(f"  Found: {lead.company_name}")
+                    scraper_leads += 1
+                    print(f"    + {lead.company_name}")
+            
+            if hasattr(scraper, 'api_failed') and scraper.api_failed:
+                fallback_needed = True
+                
         except Exception as e:
             print(f"  Error with {scraper.get_source_name()}: {e}")
+        
+        if scraper_leads > 0:
+            print(f"  [{scraper.get_source_name()}] Found {scraper_leads} leads")
+    
+    if fallback_needed:
+        print(f"\n[Companies House Web] Falling back to web scraper...")
+        fallback_scraper = CompaniesHouseScraper(town, sector)
+        try:
+            for lead in fallback_scraper.scrape(max_pages=max_pages):
+                if lead:
+                    if enricher:
+                        lead = enricher.enrich(lead)
+                    leads.append(lead)
+                    print(f"    + {lead.company_name}")
+        except Exception as e:
+            print(f"  Error with fallback scraper: {e}")
     
     return leads
 
 def deduplicate_leads(leads: List[BusinessLead], existing_keys: Set[str]) -> List[BusinessLead]:
     unique_leads = []
     seen_keys = existing_keys.copy()
+    seen_names = {k.split('|')[0] for k in seen_keys}
     
     for lead in leads:
         key = lead.get_key()
         name_key = lead.company_name.lower().strip()
         
-        if key not in seen_keys and name_key not in [k.split('|')[0] for k in seen_keys]:
+        if key not in seen_keys and name_key not in seen_names:
             seen_keys.add(key)
+            seen_names.add(name_key)
             unique_leads.append(lead)
     
     return unique_leads
@@ -72,6 +108,7 @@ Examples:
   python main.py --town Guildford         # Scrape only Guildford
   python main.py --sector "IT companies"  # Focus on IT sector
   python main.py --pages 5 --no-enrich    # More pages, skip enrichment
+  python main.py --verbose                # Show debug output
         """
     )
     
@@ -108,8 +145,21 @@ Examples:
         action='store_true',
         help='Start fresh (overwrite existing CSV)'
     )
+    parser.add_argument(
+        '--verbose', '-v',
+        action='store_true',
+        help='Show detailed debug output'
+    )
+    parser.add_argument(
+        '--dry-run',
+        action='store_true',
+        help='Test scraping without saving to CSV'
+    )
     
     args = parser.parse_args()
+    
+    if args.verbose:
+        set_verbose(True)
     
     print("="*60)
     print("Business Lead Scraper for Office Leasing")
@@ -118,17 +168,23 @@ Examples:
     
     towns = [args.town] if args.town else DEFAULT_TOWNS
     
+    api_key_present = bool(os.environ.get("COMPANIES_HOUSE_API_KEY"))
+    
     print(f"\nTarget towns: {', '.join(towns)}")
     print(f"Sector filter: {args.sector or 'All professional services'}")
     print(f"Output file: {args.output}")
     print(f"Max pages per source: {args.pages}")
     print(f"Enrichment: {'Disabled' if args.no_enrich else 'Enabled'}")
+    print(f"Verbose mode: {'Enabled' if args.verbose else 'Disabled'}")
+    print(f"Companies House API: {'Available' if api_key_present else 'Not configured (using web scraper)'}")
+    if args.dry_run:
+        print(f"DRY RUN MODE: Results will not be saved")
     
-    if args.fresh and os.path.exists(args.output):
+    if args.fresh and os.path.exists(args.output) and not args.dry_run:
         os.remove(args.output)
         print(f"\nRemoved existing file: {args.output}")
     
-    existing_keys = load_existing_keys(args.output)
+    existing_keys = load_existing_keys(args.output) if not args.dry_run else set()
     print(f"Existing leads in file: {len(existing_keys)}")
     
     all_leads = []
@@ -139,22 +195,28 @@ Examples:
                 town=town,
                 sector=args.sector,
                 max_pages=args.pages,
-                enrich=not args.no_enrich
+                enrich=not args.no_enrich,
+                use_api=api_key_present
             )
             all_leads.extend(leads)
             
             unique_leads = deduplicate_leads(leads, existing_keys)
-            if unique_leads:
+            if unique_leads and not args.dry_run:
                 save_leads_to_csv(unique_leads, args.output)
                 for lead in unique_leads:
                     existing_keys.add(lead.get_key())
                 print(f"\nSaved {len(unique_leads)} new leads from {town}")
+            elif unique_leads and args.dry_run:
+                print(f"\n[DRY RUN] Would save {len(unique_leads)} new leads from {town}")
             
         except KeyboardInterrupt:
             print("\n\nScraping interrupted by user. Saving progress...")
             break
         except Exception as e:
             print(f"\nError scraping {town}: {e}")
+            if args.verbose:
+                import traceback
+                traceback.print_exc()
             continue
     
     unique_total = deduplicate_leads(all_leads, set())
@@ -164,7 +226,8 @@ Examples:
     print("="*60)
     print(f"Total leads found: {len(all_leads)}")
     print(f"Unique leads (this session): {len(unique_total)}")
-    print(f"Output saved to: {args.output}")
+    if not args.dry_run:
+        print(f"Output saved to: {args.output}")
     print(f"Completed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     
     if len(all_leads) == 0:
@@ -173,13 +236,13 @@ Examples:
         print("!"*60)
         print("This often happens because websites block automated requests.")
         print("\nPossible solutions:")
-        print("  1. Wait and try again later (rate limiting)")
+        print("  1. Set COMPANIES_HOUSE_API_KEY environment variable")
+        print("     Get a free key: https://developer.company-information.service.gov.uk/")
         print("  2. Use a VPN or proxy service")
-        print("  3. Use the --no-enrich flag to reduce requests")
-        print("  4. Try different sectors with --sector")
-        print("  5. Consider using a headless browser (Selenium)")
-        print("\nNote: Many websites have anti-bot protection that blocks")
-        print("      scrapers. This is normal and the code is working correctly.")
+        print("  3. Wait and try again later (rate limiting)")
+        print("  4. Use --verbose flag to see detailed debug info")
+        print("  5. Try different sectors with --sector")
+        print("\nNote: Many websites have anti-bot protection. This is normal.")
 
 if __name__ == "__main__":
     main()

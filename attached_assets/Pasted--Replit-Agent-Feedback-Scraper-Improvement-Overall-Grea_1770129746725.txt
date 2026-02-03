@@ -1,0 +1,35 @@
+📝 Replit Agent Feedback – Scraper Improvement
+Overall:
+Great initial architecture and modularity. The tool runs cleanly and uses sector and location batching effectively. However, it’s currently not gathering any results due to web request failures. Let’s refine the scraper to improve reliability and data collection.
+🔧 Priority Fixes & Suggestions
+🔐 Add Realistic Headers to HTTP Requests
+All Yell.com requests are returning 403 Forbidden.
+Fix: Add proper User-Agent, Accept, Accept-Language headers to simulate a real browser. This often bypasses Yell’s basic bot protection.
+Add a headers dictionary and pass it to requests.get().
+🔁 Retry Logic with Backoff
+Implement retry-on-fail with exponential backoff (e.g. 2s, 5s, 10s).
+This increases robustness when sources are rate-limiting or unstable.
+🧪 Test for Blocked vs Empty Results
+If a page returns status 200 but yields no leads, log:
+Whether it’s a real HTML page or a CAPTCHA/dummy response.
+Number of business listings found (e.g. from .businessCapsule in Yell).
+Add a warning if the structure of the source site has changed.
+📦 Companies House Improvements
+Try using the official Companies House API, which supports:
+Filtering by SIC code (e.g. “70229” = business consulting)
+Searching by postcode or town
+It's more structured and less error-prone than scraping the site itself.
+💡 Better Google Enrichment
+Google search results rarely have structured data — make enrichment optional or use a scraped snippet parser.
+Use only top 3–5 results per query unless structured data is detected.
+💾 Save Partial Progress
+Save leads incrementally to CSV after each sector/town batch, in case of interruption.
+📈 Verbose Logging Toggle
+Add a --verbose flag to optionally print parsed leads or raw HTML snippet samples for debugging.
+✅ Optional Enhancements (Next Sprint)
+Selenium fallback mode for sources like Yell or LinkedIn that require JavaScript rendering.
+Duplicate filtering by email/domain name (in addition to company name).
+Add multi-town batch support from a list: e.g. ["Guildford", "Farnham", "Woking"]
+CLI flag for --dry-run (test without saving) or --no-enrich
+🎯 Suggested Message Format (for Replit Agent chat):
+“The scraper runs cleanly but all requests to Yell.com are returning 403. Can you add a realistic user-agent and browser headers to the requests to bypass bot protection? Also add retry logic, and log when a page returns 200 but has no business listings. Bonus if you can integrate Companies House API to avoid scraping altogether.”
