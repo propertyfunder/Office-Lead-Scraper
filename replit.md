@@ -31,12 +31,27 @@ A Python-based lead generation tool that collects small business leads for offic
 4. ~~Google Search~~ - Blocked (CAPTCHA protection)
 
 ## Target Sectors
+
+### Professional Services Mode (default)
 - Professional services (accountants, lawyers, recruiters, consultants)
 - Tech and software companies
 - Engineering / R&D firms
 - Digital marketing / media agencies
 - Clean energy / environmental services
 - Architects and design firms
+
+### Wellness Mode (--wellness flag) - Unit 8 Godalming Business Centre
+Target businesses for Unit 8 - a small, professional space ideal for clinical, therapeutic, and wellness businesses:
+- Physiotherapists, osteopaths, chiropractors
+- Private GPs and health clinics
+- Dentists (especially cosmetic or private)
+- Podiatrists
+- Psychotherapists and mental health professionals
+- Pilates and yoga studios
+- Massage therapy and acupuncture
+- Holistic health and wellness services
+
+Searches focus on Surrey towns: Godalming, Guildford, Farnham, and Woking.
 
 ## Excluded Sectors
 - Retail, logistics, trades, industrial businesses
@@ -58,9 +73,24 @@ python main.py --town Guildford
 python main.py --sector "IT companies"
 ```
 
+### Wellness Mode (Unit 8)
+```bash
+python main.py --wellness
+```
+
+### Wellness Mode - Single Town
+```bash
+python main.py --wellness --town Godalming
+```
+
 ### All Options
 ```bash
 python main.py --town Woking --sector accountants --pages 3 --output my_leads.csv --no-enrich --fresh
+```
+
+### Wellness with Output File
+```bash
+python main.py --wellness --output wellness_leads.csv --pages 3
 ```
 
 ### Debug Mode
@@ -82,19 +112,23 @@ python main.py --dry-run
 - `--fresh`: Start fresh, overwrite existing CSV
 - `--verbose, -v`: Show detailed debug output
 - `--dry-run`: Test scraping without saving to CSV
+- `--wellness`: Search for wellness/clinical businesses suitable for Unit 8 (Godalming Business Centre)
 
 ## Output Fields
 - Company name
 - Website
-- Sector / business description (with ratings from Google Places)
+- Sector / business description
 - Contact name (Director/MD if found)
-- Email address or phone number
+- Email address
+- Phone number
 - LinkedIn profile
 - Physical location (full address with postcode)
 - Estimated employee count
 - Source (Google Places, Companies House API, etc.)
-- AI Score (1-10) - likelihood of needing office space
+- AI Score (1-10) - likelihood of needing office space (or Unit 8 suitability in wellness mode)
 - AI Reason - explanation of the score
+- Tag - Lead category (wellness, clinic-target, or empty)
+- Google Rating - Rating from Google Places if available
 
 ## Features
 - **Google Places API** - Primary data source with rich business info
@@ -149,6 +183,11 @@ Recent run for Guildford found 173+ unique leads including:
 - **Rate Limits**: Both APIs have usage limits (Google: 1000 requests/day free)
 
 ## Recent Changes
+- 2026-02-03: Added wellness mode for Unit 8 (Godalming Business Centre) targeting clinical/therapeutic businesses
+- 2026-02-03: Added new search categories: physiotherapy, osteopath, chiropractor, dentist, pilates, yoga, massage, mental health, holistic therapy
+- 2026-02-03: Added tag field for lead categorization (wellness, clinic-target)
+- 2026-02-03: Added phone and google_rating fields to output
+- 2026-02-03: Updated AI scorer with Unit 8 suitability evaluation
 - 2026-02-03: Added AI-powered lead scoring with OpenAI
 - 2026-02-03: Added Google Places API as primary data source
 - 2026-02-03: Integrated LinkedIn profile discovery during enrichment

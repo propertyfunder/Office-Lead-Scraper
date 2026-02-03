@@ -19,39 +19,47 @@ from src.utils import save_leads_to_csv, load_existing_keys, is_target_sector, s
 DEFAULT_TOWNS = ["Guildford", "Godalming", "Farnham", "Woking"]
 DEFAULT_OUTPUT = "leads.csv"
 
-def create_scrapers(town: str, sector: str = "", use_api: bool = True) -> list:
+def create_scrapers(town: str, sector: str = "", use_api: bool = True, wellness_mode: bool = False) -> list:
     scrapers = []
     
     if use_api:
-        api_scraper = CompaniesHouseAPIScraper(town, sector)
-        if api_scraper.is_available():
-            scrapers.append(api_scraper)
-        else:
-            scrapers.append(CompaniesHouseScraper(town, sector))
+        if not wellness_mode:
+            api_scraper = CompaniesHouseAPIScraper(town, sector)
+            if api_scraper.is_available():
+                scrapers.append(api_scraper)
+            else:
+                scrapers.append(CompaniesHouseScraper(town, sector))
         
-        places_scraper = GooglePlacesScraper(town, sector)
+        places_scraper = GooglePlacesScraper(town, sector, wellness_mode=wellness_mode)
         if places_scraper.is_available():
             scrapers.append(places_scraper)
     else:
-        scrapers.append(CompaniesHouseScraper(town, sector))
+        if not wellness_mode:
+            scrapers.append(CompaniesHouseScraper(town, sector))
     
-    scrapers.append(YellScraper(town, sector))
-    scrapers.append(GoogleSearchScraper(town, sector))
+    if not wellness_mode:
+        scrapers.append(YellScraper(town, sector))
+        scrapers.append(GoogleSearchScraper(town, sector))
     
     return scrapers
 
-def scrape_town(town: str, sector: str, max_pages: int, enrich: bool = True, use_api: bool = True, ai_score: bool = True) -> List[BusinessLead]:
+def scrape_town(town: str, sector: str, max_pages: int, enrich: bool = True, use_api: bool = True, ai_score: bool = True, wellness_mode: bool = False) -> List[BusinessLead]:
     print(f"\n{'='*60}")
     print(f"Scraping leads in: {town}")
+    if wellness_mode:
+        print(f"MODE: Wellness & Clinical businesses for Unit 8")
     print(f"{'='*60}")
     
-    scrapers = create_scrapers(town, sector, use_api)
+    scrapers = create_scrapers(town, sector, use_api, wellness_mode)
     enricher = LeadEnricher() if enrich else None
-    scorer = AILeadScorer() if ai_score else None
+    scorer = AILeadScorer(wellness_mode=wellness_mode) if ai_score else None
     leads = []
     
     if scorer and scorer.enabled:
-        print("  [AI Scoring] Enabled - leads will be scored for office space potential")
+        if wellness_mode:
+            print("  [AI Scoring] Enabled - leads will be scored for Unit 8 suitability")
+        else:
+            print("  [AI Scoring] Enabled - leads will be scored for office space potential")
     
     fallback_needed = False
     
@@ -170,6 +178,11 @@ Examples:
         action='store_true',
         help='Test scraping without saving to CSV'
     )
+    parser.add_argument(
+        '--wellness',
+        action='store_true',
+        help='Search for wellness/clinical businesses suitable for Unit 8 (Godalming Business Centre)'
+    )
     
     args = parser.parse_args()
     
@@ -188,13 +201,16 @@ Examples:
     openai_key_present = bool(os.environ.get("OPENAI_API_KEY"))
     
     print(f"\nTarget towns: {', '.join(towns)}")
-    print(f"Sector filter: {args.sector or 'All professional services'}")
+    if args.wellness:
+        print(f"MODE: Wellness & Clinical leads for Unit 8 (Godalming Business Centre)")
+    print(f"Sector filter: {args.sector or ('Wellness/Clinical businesses' if args.wellness else 'All professional services')}")
     print(f"Output file: {args.output}")
     print(f"Max pages per source: {args.pages}")
     print(f"Enrichment: {'Disabled' if args.no_enrich else 'Enabled'}")
     print(f"AI Lead Scoring: {'Enabled' if openai_key_present else 'Disabled (add OPENAI_API_KEY)'}")
     print(f"Verbose mode: {'Enabled' if args.verbose else 'Disabled'}")
-    print(f"Companies House API: {'Available' if api_key_present else 'Not configured (using web scraper)'}")
+    if not args.wellness:
+        print(f"Companies House API: {'Available' if api_key_present else 'Not configured (using web scraper)'}")
     print(f"Google Places API: {'Available' if places_key_present else 'Not configured'}")
     if args.dry_run:
         print(f"DRY RUN MODE: Results will not be saved")
@@ -215,8 +231,9 @@ Examples:
                 sector=args.sector,
                 max_pages=args.pages,
                 enrich=not args.no_enrich,
-                use_api=api_key_present,
-                ai_score=openai_key_present
+                use_api=api_key_present or places_key_present,
+                ai_score=openai_key_present,
+                wellness_mode=args.wellness
             )
             all_leads.extend(leads)
             
