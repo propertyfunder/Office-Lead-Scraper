@@ -6,7 +6,10 @@ A Python-based lead generation tool that collects small business leads for offic
 ## Project Structure
 ```
 .
-├── main.py              # CLI entry point
+├── main.py              # CLI entry point for scraping
+├── app.py               # Flask web dashboard
+├── templates/
+│   └── index.html       # Dashboard HTML template
 ├── src/
 │   ├── __init__.py
 │   ├── models.py        # BusinessLead dataclass
@@ -23,6 +26,14 @@ A Python-based lead generation tool that collects small business leads for offic
 │       └── companies_house_api.py  # Companies House API scraper
 └── leads.csv            # Output file (generated)
 ```
+
+## Web Dashboard
+The project includes a web dashboard to view and filter leads:
+- Run `python app.py` to start the dashboard on port 5000
+- Filter leads by tag (wellness, clinic-target)
+- Filter by minimum AI score
+- Search by company name, sector, or location
+- View statistics: total leads, wellness count, average score
 
 ## Data Sources (by reliability)
 1. **Google Places API** (Primary) - Best results, structured data with phone/website/ratings
