@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import List, Set
 
 from src.models import BusinessLead
-from src.scrapers import GoogleSearchScraper, YellScraper, CompaniesHouseScraper, CompaniesHouseAPIScraper
+from src.scrapers import GoogleSearchScraper, YellScraper, CompaniesHouseScraper, CompaniesHouseAPIScraper, GooglePlacesScraper
 from src.enricher import LeadEnricher
 from src.utils import save_leads_to_csv, load_existing_keys, is_target_sector, set_verbose
 
@@ -27,6 +27,10 @@ def create_scrapers(town: str, sector: str = "", use_api: bool = True) -> list:
             scrapers.append(api_scraper)
         else:
             scrapers.append(CompaniesHouseScraper(town, sector))
+        
+        places_scraper = GooglePlacesScraper(town, sector)
+        if places_scraper.is_available():
+            scrapers.append(places_scraper)
     else:
         scrapers.append(CompaniesHouseScraper(town, sector))
     
@@ -169,6 +173,7 @@ Examples:
     towns = [args.town] if args.town else DEFAULT_TOWNS
     
     api_key_present = bool(os.environ.get("COMPANIES_HOUSE_API_KEY"))
+    places_key_present = bool(os.environ.get("GOOGLE_MAPS_API_KEY"))
     
     print(f"\nTarget towns: {', '.join(towns)}")
     print(f"Sector filter: {args.sector or 'All professional services'}")
@@ -177,6 +182,7 @@ Examples:
     print(f"Enrichment: {'Disabled' if args.no_enrich else 'Enabled'}")
     print(f"Verbose mode: {'Enabled' if args.verbose else 'Disabled'}")
     print(f"Companies House API: {'Available' if api_key_present else 'Not configured (using web scraper)'}")
+    print(f"Google Places API: {'Available' if places_key_present else 'Not configured'}")
     if args.dry_run:
         print(f"DRY RUN MODE: Results will not be saved")
     
