@@ -22,9 +22,9 @@ args = "Lead Scraper"
 name = "Lead Scraper"
 author = "agent"
 
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "python main.py --pages 1 --town Guildford"
-
 [workflows.workflow.metadata]
 outputType = "console"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python main.py --pages 1 --town Guildford --fresh"

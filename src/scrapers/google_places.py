@@ -132,14 +132,17 @@ class GooglePlacesScraper(BaseScraper):
             }
             response = requests.post(self.base_url, json=data, headers=headers, timeout=10)
             
-            if response.status_code == 403:
-                error = response.json().get("error", {})
-                print(f"  [Google Places] API error: {error.get('message', 'Access denied')}")
+            if response.status_code != 200:
+                try:
+                    error = response.json().get("error", {})
+                    print(f"  [Google Places] API error ({response.status_code}): {error.get('message', 'Unknown error')}")
+                except:
+                    print(f"  [Google Places] API returned status {response.status_code}")
                 return False
             
-            return response.status_code == 200
+            return True
         except Exception as e:
-            log_verbose(f"Places API test failed: {e}")
+            print(f"  [Google Places] Connection error: {str(e)[:60]}")
             return False
     
     def _parse_place(self, place: dict) -> Optional[BusinessLead]:

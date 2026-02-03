@@ -1,7 +1,7 @@
 # Business Lead Scraper for Office Leasing
 
 ## Overview
-A Python-based web scraper that collects small business leads for office leasing in Surrey, UK. It targets professional service companies in Guildford, Godalming, Farnham, and Woking that may be interested in flexible office space.
+A Python-based lead generation tool that collects small business leads for office leasing in Surrey, UK. It targets professional service companies in Guildford, Godalming, Farnham, and Woking that may be interested in flexible office space.
 
 ## Project Structure
 ```
@@ -15,12 +15,19 @@ A Python-based web scraper that collects small business leads for office leasing
 │   └── scrapers/
 │       ├── __init__.py
 │       ├── base_scraper.py      # Abstract base scraper
-│       ├── google_scraper.py    # Google search scraper
-│       ├── yell_scraper.py      # Yell.com directory scraper
+│       ├── google_scraper.py    # Google search scraper (blocked)
+│       ├── google_places.py     # Google Places API scraper (primary)
+│       ├── yell_scraper.py      # Yell.com directory scraper (blocked)
 │       ├── companies_house.py   # Companies House scraper
 │       └── companies_house_api.py  # Companies House API scraper
 └── leads.csv            # Output file (generated)
 ```
+
+## Data Sources (by reliability)
+1. **Google Places API** (Primary) - Best results, structured data with phone/website/ratings
+2. **Companies House API** - Official company registry, director names
+3. ~~Yell.com~~ - Blocked (403 Forbidden)
+4. ~~Google Search~~ - Blocked (CAPTCHA protection)
 
 ## Target Sectors
 - Professional services (accountants, lawyers, recruiters, consultants)
@@ -28,6 +35,7 @@ A Python-based web scraper that collects small business leads for office leasing
 - Engineering / R&D firms
 - Digital marketing / media agencies
 - Clean energy / environmental services
+- Architects and design firms
 
 ## Excluded Sectors
 - Retail, logistics, trades, industrial businesses
@@ -77,25 +85,25 @@ python main.py --dry-run
 ## Output Fields
 - Company name
 - Website
-- Sector / business description
+- Sector / business description (with ratings from Google Places)
 - Contact name (Director/MD if found)
-- Email address
+- Email address or phone number
 - LinkedIn profile
-- Physical location (town + postcode)
+- Physical location (full address with postcode)
 - Estimated employee count
-- Source
+- Source (Google Places, Companies House API, etc.)
 
 ## Features
-- Multi-source scraping (Yell.com, Companies House, Google)
-- Companies House API integration (optional, more reliable)
+- **Google Places API** - Primary data source with rich business info
+- **Companies House API** - Official UK company registry
+- Automatic LinkedIn profile discovery
+- Phone numbers and websites from Google Places
+- Business ratings and review counts
 - Retry logic with exponential backoff
 - Rate limiting to avoid blocks
-- User-agent rotation with realistic browser headers
-- Block/CAPTCHA detection with helpful warnings
-- De-duplication by company name/email
+- De-duplication by company name
 - Incremental CSV saving
 - Lead enrichment from company websites
-- Email guessing based on contact names
 - Verbose logging for debugging
 
 ## Dependencies
@@ -105,33 +113,34 @@ python main.py --dry-run
 - pandas
 - fake-useragent
 
-## Companies House API Setup (Recommended)
-For more reliable results, use the official Companies House API:
+## API Setup (Required)
 
-1. Get a free API key at: https://developer.company-information.service.gov.uk/
-2. Set the environment variable:
-   ```bash
-   export COMPANIES_HOUSE_API_KEY="your-api-key-here"
-   ```
-3. Run the scraper - it will automatically use the API
+### Google Places API (Primary Source)
+1. Go to Google Cloud Console: https://console.cloud.google.com/
+2. Create a project and enable "Places API (New)"
+3. Create an API key with Places API restrictions
+4. Add as Replit Secret: `GOOGLE_MAPS_API_KEY`
+
+### Companies House API (Supplementary)
+1. Register at: https://developer.company-information.service.gov.uk/
+2. Get your free API key
+3. Add as Replit Secret: `COMPANIES_HOUSE_API_KEY`
+
+## Sample Results
+Recent run for Guildford found 173+ unique leads including:
+- **Gaming Studios**: Ubisoft, Hello Games, Electronic Arts, Criterion Games
+- **IT/Software**: Software Planet Group, Eagle Eye Solutions, Person Centred Software
+- **Engineering**: Surrey Satellite Technology, WSP, Vision Engineering
+- **Professional Services**: RSM, BDO, Scott Brownrigg, Clyde & Co
+- **Marketing**: Air Social, Flourish, Delivered Social, Caffeine Marketing
 
 ## Known Limitations
-Many websites implement anti-bot protection that may block automated scraping:
-- **Yell.com**: Often returns 403 Forbidden
-- **Google**: May require CAPTCHA or block repeated requests
-- **Companies House Website**: Generally accessible but may rate-limit
-- **Companies House API**: Most reliable (requires free API key)
+- **Yell.com**: Blocked (403 Forbidden) - anti-bot protection
+- **Google Search**: Blocked (CAPTCHA) - use Google Places API instead
+- **Rate Limits**: Both APIs have usage limits (Google: 1000 requests/day free)
 
-### Workarounds
-1. Use the Companies House API (recommended)
-2. Use a VPN or proxy service
-3. Add delays between requests (already implemented)
-4. Consider using Selenium for JavaScript-heavy sites
-5. Run during off-peak hours
-6. Use --verbose flag to debug issues
-
-## Future Improvements
-- Implement proxy rotation
-- Add Selenium support for JavaScript-heavy sites
-- Add Crunchbase and LinkedIn scrapers
-- Export to additional formats (JSON, Excel)
+## Recent Changes
+- 2026-02-03: Added Google Places API as primary data source
+- 2026-02-03: Integrated LinkedIn profile discovery during enrichment
+- 2026-02-03: Added phone numbers to leads from Google Places
+- 2026-02-03: Improved sector classification with ratings
