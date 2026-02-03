@@ -30,10 +30,11 @@ A Python-based lead generation tool that collects small business leads for offic
 ## Web Dashboard
 The project includes a web dashboard to view and filter leads:
 - Run `python app.py` to start the dashboard on port 5000
-- Filter leads by tag (wellness, clinic-target)
+- **Two tabs**: Unit 8 Occupiers (wellness/clinical) and Office Occupiers
 - Filter by minimum AI score
 - Search by company name, sector, or location
-- View statistics: total leads, wellness count, average score
+- View statistics: total leads, emails, named contacts, average score
+- **Download CSV** for each category separately
 
 ## Data Sources (by reliability)
 1. **Google Places API** (Primary) - Best results, structured data with phone/website/ratings
@@ -124,6 +125,7 @@ python main.py --dry-run
 - `--verbose, -v`: Show detailed debug output
 - `--dry-run`: Test scraping without saving to CSV
 - `--wellness`: Search for wellness/clinical businesses suitable for Unit 8 (Godalming Business Centre)
+- `--require-enrichment`: Only save leads with both email AND named contact
 
 ## Output Fields
 - Company name
@@ -140,6 +142,7 @@ python main.py --dry-run
 - AI Reason - explanation of the score
 - Tag - Lead category (wellness, clinic-target, or empty)
 - Google Rating - Rating from Google Places if available
+- Category - 'unit8' for wellness/clinical or 'office' for general office leads
 
 ## Features
 - **Google Places API** - Primary data source with rich business info

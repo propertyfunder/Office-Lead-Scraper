@@ -145,6 +145,24 @@ def deduplicate_leads(leads: List[BusinessLead], existing_keys: Set[str]) -> Lis
     
     return unique_leads
 
+def filter_qualified_leads(leads: List[BusinessLead], require_enrichment: bool = True) -> tuple:
+    if not require_enrichment:
+        return leads, []
+    
+    qualified = []
+    filtered_out = []
+    
+    for lead in leads:
+        has_email = bool(lead.email and '@' in lead.email)
+        has_contact = bool(lead.contact_name and len(lead.contact_name.strip()) > 2)
+        
+        if has_email and has_contact:
+            qualified.append(lead)
+        else:
+            filtered_out.append(lead)
+    
+    return qualified, filtered_out
+
 def main():
     parser = argparse.ArgumentParser(
         description="Scrape small business leads for office leasing in Surrey, UK",
@@ -206,6 +224,11 @@ Examples:
         '--wellness',
         action='store_true',
         help='Search for wellness/clinical businesses suitable for Unit 8 (Godalming Business Centre)'
+    )
+    parser.add_argument(
+        '--require-enrichment',
+        action='store_true',
+        help='Only save leads with both email and named contact'
     )
     
     args = parser.parse_args()
@@ -269,13 +292,17 @@ Examples:
             all_leads.extend(leads)
             
             unique_leads = deduplicate_leads(leads, existing_keys)
-            if unique_leads and not args.dry_run:
-                save_leads_to_csv(unique_leads, args.output)
-                for lead in unique_leads:
+            qualified_leads, filtered_out = filter_qualified_leads(unique_leads, args.require_enrichment)
+            
+            if qualified_leads and not args.dry_run:
+                save_leads_to_csv(qualified_leads, args.output)
+                for lead in qualified_leads:
                     existing_keys.add(lead.get_key())
-                print(f"\nSaved {len(unique_leads)} new leads from {town}")
-            elif unique_leads and args.dry_run:
-                print(f"\n[DRY RUN] Would save {len(unique_leads)} new leads from {town}")
+                print(f"\nSaved {len(qualified_leads)} new leads from {town}")
+                if filtered_out and args.require_enrichment:
+                    print(f"  [Filter] {len(filtered_out)} leads skipped (missing email or contact)")
+            elif qualified_leads and args.dry_run:
+                print(f"\n[DRY RUN] Would save {len(qualified_leads)} new leads from {town}")
             
         except KeyboardInterrupt:
             print("\n\nScraping interrupted by user. Saving progress...")
