@@ -6,6 +6,7 @@ requires-python = ">=3.11"
 dependencies = [
     "beautifulsoup4>=4.14.3",
     "fake-useragent>=2.2.0",
+    "flask>=3.1.2",
     "lxml>=6.0.2",
     "openai>=2.16.0",
     "pandas>=3.0.0",

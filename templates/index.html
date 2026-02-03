@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Business Leads Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: #f5f7fa;
+            color: #333;
+            line-height: 1.6;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px 0;
+            margin-bottom: 30px;
+        }
+        
+        header h1 {
+            font-size: 2rem;
+            font-weight: 600;
+        }
+        
+        header p {
+            opacity: 0.9;
+            margin-top: 5px;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .stat-card {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            text-align: center;
+        }
+        
+        .stat-card .number {
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: #667eea;
+        }
+        
+        .stat-card .label {
+            font-size: 0.9rem;
+            color: #666;
+            margin-top: 5px;
+        }
+        
+        .stat-card.wellness .number { color: #10b981; }
+        .stat-card.clinic .number { color: #f59e0b; }
+        
+        .filters {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            margin-bottom: 20px;
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        
+        .filters input, .filters select {
+            padding: 10px 15px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 0.95rem;
+            outline: none;
+        }
+        
+        .filters input:focus, .filters select:focus {
+            border-color: #667eea;
+        }
+        
+        .filters input[type="text"] {
+            flex: 1;
+            min-width: 200px;
+        }
+        
+        .btn {
+            padding: 10px 20px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.95rem;
+            transition: background 0.2s;
+        }
+        
+        .btn:hover {
+            background: #5a67d8;
+        }
+        
+        .btn-secondary {
+            background: #6b7280;
+        }
+        
+        .btn-secondary:hover {
+            background: #4b5563;
+        }
+        
+        .table-wrapper {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            overflow: hidden;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        th {
+            background: #f8fafc;
+            padding: 15px;
+            text-align: left;
+            font-weight: 600;
+            color: #475569;
+            border-bottom: 2px solid #e2e8f0;
+            position: sticky;
+            top: 0;
+        }
+        
+        td {
+            padding: 12px 15px;
+            border-bottom: 1px solid #f1f5f9;
+            vertical-align: top;
+        }
+        
+        tr:hover {
+            background: #f8fafc;
+        }
+        
+        .company-name {
+            font-weight: 600;
+            color: #1e293b;
+        }
+        
+        .tag {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            text-transform: uppercase;
+        }
+        
+        .tag-wellness {
+            background: #d1fae5;
+            color: #065f46;
+        }
+        
+        .tag-clinic-target {
+            background: #fef3c7;
+            color: #92400e;
+        }
+        
+        .score {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            font-weight: 700;
+            font-size: 0.9rem;
+        }
+        
+        .score-high { background: #d1fae5; color: #065f46; }
+        .score-medium { background: #fef3c7; color: #92400e; }
+        .score-low { background: #fee2e2; color: #991b1b; }
+        
+        .contact-info {
+            font-size: 0.85rem;
+            color: #64748b;
+        }
+        
+        .contact-info a {
+            color: #667eea;
+            text-decoration: none;
+        }
+        
+        .contact-info a:hover {
+            text-decoration: underline;
+        }
+        
+        .location {
+            font-size: 0.85rem;
+            color: #64748b;
+        }
+        
+        .rating {
+            color: #f59e0b;
+            font-size: 0.85rem;
+        }
+        
+        .ai-reason {
+            font-size: 0.8rem;
+            color: #94a3b8;
+            max-width: 200px;
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #64748b;
+        }
+        
+        .empty-state h3 {
+            font-size: 1.25rem;
+            margin-bottom: 10px;
+        }
+        
+        @media (max-width: 768px) {
+            .table-wrapper {
+                overflow-x: auto;
+            }
+            
+            table {
+                min-width: 900px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>Business Leads Dashboard</h1>
+            <p>Lead generation for office leasing in Surrey, UK</p>
+        </div>
+    </header>
+    
+    <div class="container">
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="number">{{ stats.total }}</div>
+                <div class="label">Total Leads</div>
+            </div>
+            <div class="stat-card wellness">
+                <div class="number">{{ stats.wellness }}</div>
+                <div class="label">Wellness Leads</div>
+            </div>
+            <div class="stat-card clinic">
+                <div class="number">{{ stats.clinic }}</div>
+                <div class="label">Clinic Targets</div>
+            </div>
+            <div class="stat-card">
+                <div class="number">{{ stats.avg_score }}</div>
+                <div class="label">Avg AI Score</div>
+            </div>
+            <div class="stat-card">
+                <div class="number">{{ stats.with_phone }}</div>
+                <div class="label">With Phone</div>
+            </div>
+            <div class="stat-card">
+                <div class="number">{{ stats.with_website }}</div>
+                <div class="label">With Website</div>
+            </div>
+        </div>
+        
+        <div class="filters">
+            <input type="text" id="searchInput" placeholder="Search company, sector, location...">
+            <select id="tagFilter">
+                <option value="">All Tags</option>
+                <option value="wellness">Wellness</option>
+                <option value="clinic-target">Clinic Target</option>
+            </select>
+            <select id="scoreFilter">
+                <option value="">All Scores</option>
+                <option value="8">8+ Score</option>
+                <option value="7">7+ Score</option>
+                <option value="5">5+ Score</option>
+            </select>
+            <button class="btn" onclick="applyFilters()">Filter</button>
+            <button class="btn btn-secondary" onclick="resetFilters()">Reset</button>
+            <button class="btn btn-secondary" onclick="refreshData()">Refresh</button>
+        </div>
+        
+        <div class="table-wrapper">
+            {% if leads %}
+            <table id="leadsTable">
+                <thead>
+                    <tr>
+                        <th>Company</th>
+                        <th>Sector</th>
+                        <th>Location</th>
+                        <th>Contact</th>
+                        <th>Score</th>
+                        <th>Tag</th>
+                        <th>Rating</th>
+                        <th>AI Notes</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for lead in leads %}
+                    <tr>
+                        <td>
+                            <div class="company-name">{{ lead.company_name }}</div>
+                            {% if lead.website %}
+                            <div class="contact-info">
+                                <a href="{{ lead.website }}" target="_blank">{{ lead.website[:40] }}{% if lead.website|length > 40 %}...{% endif %}</a>
+                            </div>
+                            {% endif %}
+                        </td>
+                        <td>{{ lead.sector or '-' }}</td>
+                        <td class="location">{{ lead.location or '-' }}</td>
+                        <td class="contact-info">
+                            {% if lead.phone %}<div>{{ lead.phone }}</div>{% endif %}
+                            {% if lead.email %}<div>{{ lead.email }}</div>{% endif %}
+                            {% if lead.contact_name %}<div>{{ lead.contact_name }}</div>{% endif %}
+                        </td>
+                        <td>
+                            {% if lead.ai_score %}
+                            <span class="score {% if lead.ai_score|int >= 8 %}score-high{% elif lead.ai_score|int >= 5 %}score-medium{% else %}score-low{% endif %}">
+                                {{ lead.ai_score }}
+                            </span>
+                            {% else %}
+                            -
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if lead.tag %}
+                            <span class="tag tag-{{ lead.tag }}">{{ lead.tag }}</span>
+                            {% endif %}
+                        </td>
+                        <td class="rating">{{ lead.google_rating or '-' }}</td>
+                        <td class="ai-reason">{{ lead.ai_reason or '-' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <div class="empty-state">
+                <h3>No leads yet</h3>
+                <p>Run the scraper to collect leads: <code>python main.py --wellness</code></p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    
+    <script>
+        function applyFilters() {
+            const search = document.getElementById('searchInput').value;
+            const tag = document.getElementById('tagFilter').value;
+            const minScore = document.getElementById('scoreFilter').value;
+            
+            const params = new URLSearchParams();
+            if (search) params.set('search', search);
+            if (tag) params.set('tag', tag);
+            if (minScore) params.set('min_score', minScore);
+            
+            fetch('/api/leads?' + params.toString())
+                .then(r => r.json())
+                .then(data => updateTable(data.leads));
+        }
+        
+        function resetFilters() {
+            document.getElementById('searchInput').value = '';
+            document.getElementById('tagFilter').value = '';
+            document.getElementById('scoreFilter').value = '';
+            refreshData();
+        }
+        
+        function refreshData() {
+            fetch('/api/refresh')
+                .then(r => r.json())
+                .then(data => {
+                    updateStats(data.stats);
+                    updateTable(data.leads);
+                });
+        }
+        
+        function updateStats(stats) {
+            const statCards = document.querySelectorAll('.stat-card .number');
+            const values = [stats.total, stats.wellness, stats.clinic, stats.avg_score, stats.with_phone, stats.with_website];
+            statCards.forEach((card, i) => {
+                if (values[i] !== undefined) card.textContent = values[i];
+            });
+        }
+        
+        function updateTable(leads) {
+            const tbody = document.querySelector('#leadsTable tbody');
+            if (!tbody) return;
+            
+            if (leads.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:40px;">No leads match your filters</td></tr>';
+                return;
+            }
+            
+            tbody.innerHTML = leads.map(lead => `
+                <tr>
+                    <td>
+                        <div class="company-name">${lead.company_name || ''}</div>
+                        ${lead.website ? `<div class="contact-info"><a href="${lead.website}" target="_blank">${lead.website.substring(0,40)}${lead.website.length > 40 ? '...' : ''}</a></div>` : ''}
+                    </td>
+                    <td>${lead.sector || '-'}</td>
+                    <td class="location">${lead.location || '-'}</td>
+                    <td class="contact-info">
+                        ${lead.phone ? `<div>${lead.phone}</div>` : ''}
+                        ${lead.email ? `<div>${lead.email}</div>` : ''}
+                        ${lead.contact_name ? `<div>${lead.contact_name}</div>` : ''}
+                    </td>
+                    <td>
+                        ${lead.ai_score ? `<span class="score ${parseInt(lead.ai_score) >= 8 ? 'score-high' : parseInt(lead.ai_score) >= 5 ? 'score-medium' : 'score-low'}">${lead.ai_score}</span>` : '-'}
+                    </td>
+                    <td>
+                        ${lead.tag ? `<span class="tag tag-${lead.tag}">${lead.tag}</span>` : ''}
+                    </td>
+                    <td class="rating">${lead.google_rating || '-'}</td>
+                    <td class="ai-reason">${lead.ai_reason || '-'}</td>
+                </tr>
+            `).join('');
+        }
+        
+        document.getElementById('searchInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') applyFilters();
+        });
+    </script>
+</body>
+</html>
