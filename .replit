@@ -27,4 +27,4 @@ outputType = "console"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "python main.py --pages 1 --town Guildford --fresh"
+args = "python main.py --wellness --pages 1 --town Godalming --fresh"
