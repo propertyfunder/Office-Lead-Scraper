@@ -110,8 +110,7 @@ def load_existing_leads_for_dedup(filepath: str) -> dict:
     existing = {
         'name_location': set(),
         'websites': set(),
-        'place_ids': set(),
-        'names': set()
+        'place_ids': set()
     }
     if not os.path.exists(filepath):
         return existing
@@ -123,7 +122,6 @@ def load_existing_leads_for_dedup(filepath: str) -> dict:
             website = row.get('website', '').lower().replace("http://", "").replace("https://", "").replace("www.", "").rstrip("/")
             place_id = row.get('place_id', '').strip()
             
-            existing['names'].add(name)
             if name and location:
                 existing['name_location'].add(f"{name}|{location}")
             if website:
@@ -133,27 +131,20 @@ def load_existing_leads_for_dedup(filepath: str) -> dict:
     return existing
 
 def is_duplicate_lead(lead, existing_data: dict) -> bool:
-    name = lead.company_name.lower().strip()
-    if name in existing_data['names']:
-        return True
-    
-    name_loc_key = lead.get_name_location_key()
-    if name_loc_key and name_loc_key in existing_data['name_location']:
+    if lead.place_id and lead.place_id in existing_data['place_ids']:
         return True
     
     website_key = lead.get_website_key()
     if website_key and website_key in existing_data['websites']:
         return True
     
-    if lead.place_id and lead.place_id in existing_data['place_ids']:
+    name_loc_key = lead.get_name_location_key()
+    if name_loc_key and name_loc_key in existing_data['name_location']:
         return True
     
     return False
 
 def add_lead_to_existing(lead, existing_data: dict):
-    name = lead.company_name.lower().strip()
-    existing_data['names'].add(name)
-    
     name_loc_key = lead.get_name_location_key()
     if name_loc_key:
         existing_data['name_location'].add(name_loc_key)

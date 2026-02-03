@@ -27,7 +27,7 @@ outputType = "console"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "python main.py --wellness --pages 1 --town Godalming --fresh"
+args = "python main.py --wellness --pages 1"
 
 [[ports]]
 localPort = 5000
