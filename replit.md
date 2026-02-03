@@ -62,7 +62,7 @@ Target businesses for Unit 8 - a small, professional space ideal for clinical, t
 - Massage therapy and acupuncture
 - Holistic health and wellness services
 
-Searches focus on Surrey towns: Godalming, Guildford, Farnham, and Woking.
+Searches focus on Surrey towns within 10-mile radius of Godalming Business Centre: Godalming, Guildford, Farnham, Woking, Haslemere, Cranleigh, Milford, Shalford, Compton, Bramley, and Hindhead.
 
 ## Excluded Sectors
 - Retail, logistics, trades, industrial businesses
@@ -194,6 +194,10 @@ Recent run for Guildford found 173+ unique leads including:
 - **Rate Limits**: Both APIs have usage limits (Google: 1000 requests/day free)
 
 ## Recent Changes
+- 2026-02-03: Expanded wellness search area to include 11 towns within 10-mile radius of Godalming Business Centre
+- 2026-02-03: Added enhanced duplicate checking (by name, website, location, and Google Place ID)
+- 2026-02-03: Added place_id and search_town fields to track lead origins and enable deduplication
+- 2026-02-03: Duplicate leads are now skipped before enrichment/scoring to save processing time
 - 2026-02-03: Added wellness mode for Unit 8 (Godalming Business Centre) targeting clinical/therapeutic businesses
 - 2026-02-03: Added new search categories: physiotherapy, osteopath, chiropractor, dentist, pilates, yoga, massage, mental health, holistic therapy
 - 2026-02-03: Added tag field for lead categorization (wellness, clinic-target)
