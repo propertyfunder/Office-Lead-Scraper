@@ -112,7 +112,8 @@ def download_csv(category):
     
     output = io.StringIO()
     fieldnames = ['company_name', 'sector', 'location', 'website', 'contact_name', 
-                  'email', 'phone', 'ai_score', 'ai_reason', 'category', 'google_rating']
+                  'email', 'phone', 'linkedin', 'ai_score', 'ai_reason', 'tag', 
+                  'google_rating', 'category', 'place_id', 'search_town']
     writer = csv.DictWriter(output, fieldnames=fieldnames, extrasaction='ignore')
     writer.writeheader()
     writer.writerows(leads)
