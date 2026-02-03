@@ -12,6 +12,7 @@ A Python-based lead generation tool that collects small business leads for offic
 │   ├── models.py        # BusinessLead dataclass
 │   ├── utils.py         # Utility functions (requests, CSV, email extraction)
 │   ├── enricher.py      # Lead enrichment (emails, contacts, LinkedIn)
+│   ├── ai_scorer.py     # AI-powered lead scoring (OpenAI)
 │   └── scrapers/
 │       ├── __init__.py
 │       ├── base_scraper.py      # Abstract base scraper
@@ -92,10 +93,13 @@ python main.py --dry-run
 - Physical location (full address with postcode)
 - Estimated employee count
 - Source (Google Places, Companies House API, etc.)
+- AI Score (1-10) - likelihood of needing office space
+- AI Reason - explanation of the score
 
 ## Features
 - **Google Places API** - Primary data source with rich business info
 - **Companies House API** - Official UK company registry
+- **AI Lead Scoring** - OpenAI-powered scoring (1-10) for office space potential
 - Automatic LinkedIn profile discovery
 - Phone numbers and websites from Google Places
 - Business ratings and review counts
@@ -126,6 +130,11 @@ python main.py --dry-run
 2. Get your free API key
 3. Add as Replit Secret: `COMPANIES_HOUSE_API_KEY`
 
+### OpenAI API (Optional - AI Scoring)
+1. Get an API key at: https://platform.openai.com/
+2. Add as Replit Secret: `OPENAI_API_KEY`
+3. Each lead will receive an AI score (1-10) for office space potential
+
 ## Sample Results
 Recent run for Guildford found 173+ unique leads including:
 - **Gaming Studios**: Ubisoft, Hello Games, Electronic Arts, Criterion Games
@@ -140,6 +149,7 @@ Recent run for Guildford found 173+ unique leads including:
 - **Rate Limits**: Both APIs have usage limits (Google: 1000 requests/day free)
 
 ## Recent Changes
+- 2026-02-03: Added AI-powered lead scoring with OpenAI
 - 2026-02-03: Added Google Places API as primary data source
 - 2026-02-03: Integrated LinkedIn profile discovery during enrichment
 - 2026-02-03: Added phone numbers to leads from Google Places

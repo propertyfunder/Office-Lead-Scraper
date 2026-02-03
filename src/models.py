@@ -12,6 +12,8 @@ class BusinessLead:
     location: str = ""
     employee_count: str = ""
     source: str = ""
+    ai_score: str = ""
+    ai_reason: str = ""
     
     def to_dict(self) -> dict:
         return asdict(self)

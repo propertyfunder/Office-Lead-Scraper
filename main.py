@@ -13,6 +13,7 @@ from typing import List, Set
 from src.models import BusinessLead
 from src.scrapers import GoogleSearchScraper, YellScraper, CompaniesHouseScraper, CompaniesHouseAPIScraper, GooglePlacesScraper
 from src.enricher import LeadEnricher
+from src.ai_scorer import AILeadScorer
 from src.utils import save_leads_to_csv, load_existing_keys, is_target_sector, set_verbose
 
 DEFAULT_TOWNS = ["Guildford", "Godalming", "Farnham", "Woking"]
@@ -39,14 +40,18 @@ def create_scrapers(town: str, sector: str = "", use_api: bool = True) -> list:
     
     return scrapers
 
-def scrape_town(town: str, sector: str, max_pages: int, enrich: bool = True, use_api: bool = True) -> List[BusinessLead]:
+def scrape_town(town: str, sector: str, max_pages: int, enrich: bool = True, use_api: bool = True, ai_score: bool = True) -> List[BusinessLead]:
     print(f"\n{'='*60}")
     print(f"Scraping leads in: {town}")
     print(f"{'='*60}")
     
     scrapers = create_scrapers(town, sector, use_api)
     enricher = LeadEnricher() if enrich else None
+    scorer = AILeadScorer() if ai_score else None
     leads = []
+    
+    if scorer and scorer.enabled:
+        print("  [AI Scoring] Enabled - leads will be scored for office space potential")
     
     fallback_needed = False
     
@@ -58,9 +63,12 @@ def scrape_town(town: str, sector: str, max_pages: int, enrich: bool = True, use
                 if lead:
                     if enricher:
                         lead = enricher.enrich(lead)
+                    if scorer and scorer.enabled:
+                        lead = scorer.score_lead(lead)
                     leads.append(lead)
                     scraper_leads += 1
-                    print(f"    + {lead.company_name}")
+                    score_info = f" [Score: {lead.ai_score}/10]" if lead.ai_score else ""
+                    print(f"    + {lead.company_name}{score_info}")
             
             if hasattr(scraper, 'api_failed') and scraper.api_failed:
                 fallback_needed = True
@@ -79,8 +87,11 @@ def scrape_town(town: str, sector: str, max_pages: int, enrich: bool = True, use
                 if lead:
                     if enricher:
                         lead = enricher.enrich(lead)
+                    if scorer and scorer.enabled:
+                        lead = scorer.score_lead(lead)
                     leads.append(lead)
-                    print(f"    + {lead.company_name}")
+                    score_info = f" [Score: {lead.ai_score}/10]" if lead.ai_score else ""
+                    print(f"    + {lead.company_name}{score_info}")
         except Exception as e:
             print(f"  Error with fallback scraper: {e}")
     
@@ -174,12 +185,14 @@ Examples:
     
     api_key_present = bool(os.environ.get("COMPANIES_HOUSE_API_KEY"))
     places_key_present = bool(os.environ.get("GOOGLE_MAPS_API_KEY"))
+    openai_key_present = bool(os.environ.get("OPENAI_API_KEY"))
     
     print(f"\nTarget towns: {', '.join(towns)}")
     print(f"Sector filter: {args.sector or 'All professional services'}")
     print(f"Output file: {args.output}")
     print(f"Max pages per source: {args.pages}")
     print(f"Enrichment: {'Disabled' if args.no_enrich else 'Enabled'}")
+    print(f"AI Lead Scoring: {'Enabled' if openai_key_present else 'Disabled (add OPENAI_API_KEY)'}")
     print(f"Verbose mode: {'Enabled' if args.verbose else 'Disabled'}")
     print(f"Companies House API: {'Available' if api_key_present else 'Not configured (using web scraper)'}")
     print(f"Google Places API: {'Available' if places_key_present else 'Not configured'}")
@@ -202,7 +215,8 @@ Examples:
                 sector=args.sector,
                 max_pages=args.pages,
                 enrich=not args.no_enrich,
-                use_api=api_key_present
+                use_api=api_key_present,
+                ai_score=openai_key_present
             )
             all_leads.extend(leads)
             
