@@ -165,7 +165,7 @@ class LeadEnricher:
         for path in common_paths:
             pages.append(urljoin(base_url, path))
         
-        return pages[:8]
+        return pages[:5]
     
     def _find_email(self, soup: BeautifulSoup, page_text: str) -> str:
         mailto_links = soup.find_all('a', href=re.compile(r'^mailto:', re.I))
