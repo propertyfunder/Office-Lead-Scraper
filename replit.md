@@ -197,6 +197,11 @@ Recent run for Guildford found 173+ unique leads including:
 - **Rate Limits**: Both APIs have usage limits (Google: 1000 requests/day free)
 
 ## Recent Changes
+- 2026-02-04: **Refined enrichment workflow** with priority order: Companies House → Website → LinkedIn → OpenAI
+- 2026-02-04: Added OpenAI last-resort enrichment with $2 daily cost cap and ai_enriched tracking flag
+- 2026-02-04: LinkedIn retry guardrails (max 50 attempts per session)
+- 2026-02-04: Companies House now also searches PSC (Persons with Significant Control)
+- 2026-02-04: Smart email handling: prefers personal emails, accepts Gmail/Yahoo for sole traders
 - 2026-02-04: **Smarter enrichment strategy** - Dynamic page discovery from nav links instead of hardcoded URLs
 - 2026-02-04: Enhanced name extraction with schema.org/JSON-LD, meta author, title patterns
 - 2026-02-04: LinkedIn search via Bing with refined query: `site:linkedin.com/in "{company}" {town} owner founder director`

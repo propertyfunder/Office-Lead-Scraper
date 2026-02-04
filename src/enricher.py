@@ -125,6 +125,12 @@ class LeadEnricher:
                     sources_tried.append("companies_house")
                     print(f"    [Companies House] Found director: {ch_contact}")
             
+            if lead.contact_name and lead.email:
+                if sources_tried:
+                    lead.enrichment_source = sources_tried[0]
+                lead.enrichment_status = "complete"
+                return lead
+            
             found_email, found_contact, source, text = self._enrich_from_website(lead)
             website_text = text
             if found_email:
@@ -135,6 +141,12 @@ class LeadEnricher:
                 print(f"    [Website] Found contact: {found_contact}")
             if source and source not in sources_tried:
                 sources_tried.append(source)
+            
+            if lead.contact_name and lead.email:
+                if sources_tried:
+                    lead.enrichment_source = sources_tried[0]
+                lead.enrichment_status = "complete"
+                return lead
             
             if not lead.contact_name and self.linkedin_attempts < self.linkedin_max_attempts:
                 linkedin_contact = self._search_linkedin_for_contact(lead)
@@ -151,6 +163,12 @@ class LeadEnricher:
                     print(f"    [Guessed] Email: {guessed}")
                     if "website" not in sources_tried:
                         sources_tried.append("website")
+            
+            if lead.contact_name and lead.email:
+                if sources_tried:
+                    lead.enrichment_source = sources_tried[0]
+                lead.enrichment_status = "complete"
+                return lead
             
             if (not lead.contact_name or not lead.email) and self.openai_api_key and website_text:
                 if self.cost_tracker.can_make_call():
