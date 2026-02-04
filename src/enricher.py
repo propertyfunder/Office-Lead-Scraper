@@ -1,12 +1,12 @@
 import re
 import os
 from typing import Optional, Tuple, List
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urlparse, quote_plus
 from bs4 import BeautifulSoup
 import requests
 
 from .models import BusinessLead
-from .utils import make_request, rate_limit, extract_email_from_text, guess_email, extract_domain, clean_text, log_verbose
+from .utils import make_request, rate_limit, extract_email_from_text, guess_email, extract_domain, clean_text, log_verbose, get_headers
 
 class LeadEnricher:
     def __init__(self):
@@ -17,6 +17,7 @@ class LeadEnricher:
         ]
         self.companies_house_api_key = os.environ.get("COMPANIES_HOUSE_API_KEY", "")
         self.ch_base_url = "https://api.company-information.service.gov.uk"
+        self.generic_email_prefixes = ['info', 'contact', 'enquiries', 'hello', 'admin', 'reception', 'office']
     
     def enrich(self, lead: BusinessLead, skip_if_complete: bool = True) -> BusinessLead:
         if skip_if_complete and lead.contact_name and lead.email:
@@ -26,7 +27,7 @@ class LeadEnricher:
         if not lead.website or 'find-and-update.company-information' in lead.website:
             if not lead.contact_name:
                 lead = self._try_companies_house(lead)
-            lead.enrichment_status = "complete" if (lead.contact_name and lead.email) else "incomplete"
+            lead.enrichment_status = self._determine_status(lead)
             lead.enrichment_source = lead.enrichment_source or "not_found"
             return lead
         
@@ -42,6 +43,12 @@ class LeadEnricher:
                 lead.contact_name = found_contact
             if source:
                 sources_tried.append(source)
+            
+            if not lead.contact_name:
+                linkedin_contact = self._search_linkedin_for_contact(lead)
+                if linkedin_contact:
+                    lead.contact_name = linkedin_contact
+                    sources_tried.append("linkedin")
             
             if (not lead.contact_name or not lead.email) and self.companies_house_api_key:
                 ch_contact = self._get_director_from_companies_house(lead.company_name)
@@ -65,12 +72,32 @@ class LeadEnricher:
         else:
             lead.enrichment_source = "not_found"
         
-        lead.enrichment_status = "complete" if (lead.contact_name and lead.email) else "incomplete"
+        lead.enrichment_status = self._determine_status(lead)
         
         return lead
     
+    def _determine_status(self, lead: BusinessLead) -> str:
+        has_contact = bool(lead.contact_name and len(lead.contact_name.strip()) > 2)
+        has_email = bool(lead.email and '@' in lead.email)
+        
+        if has_contact and has_email:
+            return "complete"
+        elif has_contact and not has_email:
+            return "missing_email"
+        elif has_email and not has_contact:
+            return "missing_name"
+        else:
+            return "incomplete"
+    
+    def _is_generic_email(self, email: str) -> bool:
+        if not email:
+            return False
+        local_part = email.split('@')[0].lower()
+        return any(local_part.startswith(prefix) for prefix in self.generic_email_prefixes)
+    
     def _enrich_from_website(self, lead: BusinessLead) -> Tuple[str, str, str]:
-        email = ""
+        personal_email = ""
+        generic_email = ""
         contact = ""
         source = ""
         
@@ -85,10 +112,14 @@ class LeadEnricher:
                 soup = BeautifulSoup(response.text, 'lxml')
                 page_text = soup.get_text()
                 
-                if not email:
+                if not personal_email:
                     found = self._find_email(soup, page_text)
                     if found:
-                        email = found
+                        if self._is_generic_email(found):
+                            if not generic_email:
+                                generic_email = found
+                        else:
+                            personal_email = found
                         source = "website"
                 
                 if not contact:
@@ -106,7 +137,7 @@ class LeadEnricher:
                 if not lead.sector or len(lead.sector) < 10:
                     lead.sector = self._extract_sector(soup) or lead.sector
                 
-                if email and contact:
+                if personal_email and contact:
                     break
                 
                 rate_limit(0.3, 0.7)
@@ -115,7 +146,8 @@ class LeadEnricher:
                 log_verbose(f"Error checking {page_url}: {e}")
                 continue
         
-        return email, contact, source
+        final_email = personal_email if personal_email else generic_email
+        return final_email, contact, source
     
     def _get_pages_to_check(self, base_url: str) -> List[str]:
         pages = [base_url]
@@ -233,6 +265,51 @@ class LeadEnricher:
                 return href
         return ""
     
+    def _search_linkedin_for_contact(self, lead: BusinessLead) -> str:
+        try:
+            town = lead.search_town or lead.location.split(',')[0] if lead.location else ""
+            search_query = f"{lead.company_name} {town} linkedin founder director owner"
+            
+            search_url = f"https://www.bing.com/search?q={quote_plus(search_query)}"
+            
+            response = requests.get(
+                search_url,
+                headers=get_headers(),
+                timeout=10
+            )
+            
+            if response.status_code != 200:
+                return ""
+            
+            soup = BeautifulSoup(response.text, 'lxml')
+            
+            snippets = soup.find_all(['p', 'span', 'li'], class_=re.compile(r'snippet|desc|caption', re.I))
+            if not snippets:
+                snippets = soup.find_all('p')
+            
+            for snippet in snippets[:10]:
+                text = snippet.get_text()
+                
+                if 'linkedin' in text.lower():
+                    title_patterns = [
+                        r'([A-Z][a-z]+\s+[A-Z][a-z]+)\s*[-–|]\s*(?:founder|owner|director|ceo|managing)',
+                        r'(?:founder|owner|director|ceo|managing)[:\s]+([A-Z][a-z]+\s+[A-Z][a-z]+)',
+                    ]
+                    for pattern in title_patterns:
+                        match = re.search(pattern, text, re.I)
+                        if match:
+                            name = match.group(1).strip()
+                            if self._looks_like_name(name):
+                                log_verbose(f"Found LinkedIn contact: {name}")
+                                return name
+            
+            rate_limit(0.5, 1.0)
+            
+        except Exception as e:
+            log_verbose(f"LinkedIn search error: {e}")
+        
+        return ""
+    
     def _try_companies_house(self, lead: BusinessLead) -> BusinessLead:
         if not self.companies_house_api_key:
             return lead
@@ -339,8 +416,10 @@ def batch_enrich_leads(leads: List[BusinessLead], skip_complete: bool = True) ->
         "skipped": 0,
         "enriched": 0,
         "complete": 0,
+        "missing_email": 0,
+        "missing_name": 0,
         "incomplete": 0,
-        "sources": {"website": 0, "companies_house": 0, "linkedin": 0, "not_found": 0}
+        "sources": {"website": 0, "linkedin": 0, "companies_house": 0, "not_found": 0}
     }
     
     needs_enrichment = []
@@ -358,10 +437,9 @@ def batch_enrich_leads(leads: List[BusinessLead], skip_complete: bool = True) ->
         enricher.enrich(lead, skip_if_complete=False)
         stats["enriched"] += 1
         
-        if lead.enrichment_status == "complete":
-            stats["complete"] += 1
-        else:
-            stats["incomplete"] += 1
+        status = lead.enrichment_status
+        if status in stats:
+            stats[status] += 1
         
         source = lead.enrichment_source or "not_found"
         if source in stats["sources"]:
@@ -369,5 +447,6 @@ def batch_enrich_leads(leads: List[BusinessLead], skip_complete: bool = True) ->
         
         if (i + 1) % 10 == 0:
             print(f"  Progress: {i + 1}/{len(needs_enrichment)} leads processed")
+            print(f"    Complete: {stats['complete']}, Missing email: {stats['missing_email']}, Missing name: {stats['missing_name']}")
     
     return leads, stats
