@@ -43,9 +43,9 @@ class LeadEnricher:
             if source:
                 sources_tried.append(source)
             
-            if not lead.contact_name and self.companies_house_api_key:
+            if (not lead.contact_name or not lead.email) and self.companies_house_api_key:
                 ch_contact = self._get_director_from_companies_house(lead.company_name)
-                if ch_contact:
+                if ch_contact and not lead.contact_name:
                     lead.contact_name = ch_contact
                     sources_tried.append("companies_house")
             
