@@ -197,6 +197,10 @@ Recent run for Guildford found 173+ unique leads including:
 - **Rate Limits**: Both APIs have usage limits (Google: 1000 requests/day free)
 
 ## Recent Changes
+- 2026-02-04: **Smarter enrichment strategy** - Dynamic page discovery from nav links instead of hardcoded URLs
+- 2026-02-04: Enhanced name extraction with schema.org/JSON-LD, meta author, title patterns
+- 2026-02-04: LinkedIn search via Bing with refined query: `site:linkedin.com/in "{company}" {town} owner founder director`
+- 2026-02-04: Companies House lookup for most recently appointed active director
 - 2026-02-04: Added batch enrichment command (--enrich-existing) to re-enrich leads missing contact name or email
 - 2026-02-04: Added enrichment_source and enrichment_status fields to track data provenance
 - 2026-02-04: Enhanced enricher to check multiple website pages (About, Team, Contact, etc.)

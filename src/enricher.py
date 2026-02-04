@@ -17,7 +17,8 @@ class LeadEnricher:
         ]
         self.companies_house_api_key = os.environ.get("COMPANIES_HOUSE_API_KEY", "")
         self.ch_base_url = "https://api.company-information.service.gov.uk"
-        self.generic_email_prefixes = ['info', 'contact', 'enquiries', 'hello', 'admin', 'reception', 'office']
+        self.generic_email_prefixes = ['info', 'contact', 'enquiries', 'hello', 'admin', 'reception', 'office', 'mail', 'enquiry', 'general', 'support']
+        self.nav_keywords = ['about', 'team', 'contact', 'people', 'staff', 'who', 'meet', 'practice', 'practitioner', 'therapist', 'our-', 'the-']
     
     def enrich(self, lead: BusinessLead, skip_if_complete: bool = True) -> BusinessLead:
         if skip_if_complete and lead.contact_name and lead.email:
@@ -101,10 +102,50 @@ class LeadEnricher:
         contact = ""
         source = ""
         
-        pages_to_check = self._get_pages_to_check(lead.website)
+        homepage_soup = None
+        homepage_text = ""
         
-        for page_url in pages_to_check:
+        try:
+            response = make_request(lead.website)
+            if response:
+                homepage_soup = BeautifulSoup(response.text, 'lxml')
+                homepage_text = homepage_soup.get_text()
+                
+                found = self._find_email(homepage_soup, homepage_text)
+                if found:
+                    if self._is_generic_email(found):
+                        generic_email = found
+                    else:
+                        personal_email = found
+                    source = "website"
+                
+                found = self._find_contact_name(homepage_soup)
+                if found:
+                    contact = found
+                    source = "website"
+                
+                if not lead.linkedin:
+                    lead.linkedin = self._find_linkedin(homepage_soup)
+                
+                if not lead.employee_count:
+                    lead.employee_count = self._estimate_employee_count(homepage_soup, homepage_text)
+                
+                if not lead.sector or len(lead.sector) < 10:
+                    lead.sector = self._extract_sector(homepage_soup) or lead.sector
+        except Exception as e:
+            log_verbose(f"Error checking homepage {lead.website}: {e}")
+        
+        if personal_email and contact:
+            return personal_email, contact, source
+        
+        discovered_pages = self._discover_nav_pages(homepage_soup, lead.website) if homepage_soup else []
+        
+        for page_url in discovered_pages[:4]:
+            if personal_email and contact:
+                break
+            
             try:
+                rate_limit(0.2, 0.5)
                 response = make_request(page_url)
                 if not response:
                     continue
@@ -131,17 +172,6 @@ class LeadEnricher:
                 if not lead.linkedin:
                     lead.linkedin = self._find_linkedin(soup)
                 
-                if not lead.employee_count:
-                    lead.employee_count = self._estimate_employee_count(soup, page_text)
-                
-                if not lead.sector or len(lead.sector) < 10:
-                    lead.sector = self._extract_sector(soup) or lead.sector
-                
-                if personal_email and contact:
-                    break
-                
-                rate_limit(0.3, 0.7)
-                
             except Exception as e:
                 log_verbose(f"Error checking {page_url}: {e}")
                 continue
@@ -149,23 +179,33 @@ class LeadEnricher:
         final_email = personal_email if personal_email else generic_email
         return final_email, contact, source
     
-    def _get_pages_to_check(self, base_url: str) -> List[str]:
-        pages = [base_url]
+    def _discover_nav_pages(self, soup: BeautifulSoup, base_url: str) -> List[str]:
+        if not soup:
+            return []
         
-        common_paths = [
-            '/about', '/about-us', '/about-me',
-            '/team', '/our-team', '/meet-the-team',
-            '/contact', '/contact-us',
-            '/who-we-are', '/the-team',
-            '/staff', '/our-people', '/people',
-            '/practitioner', '/practitioners', '/therapists',
-            '/our-practice', '/the-practice'
-        ]
+        discovered = []
+        base_domain = urlparse(base_url).netloc
         
-        for path in common_paths:
-            pages.append(urljoin(base_url, path))
+        nav_elements = soup.find_all(['nav', 'header'])
+        if not nav_elements:
+            nav_elements = [soup]
         
-        return pages[:5]
+        for nav in nav_elements:
+            links = nav.find_all('a', href=True)
+            for link in links:
+                href = str(link.get('href', '') or '')
+                text = link.get_text().lower().strip()
+                
+                if any(kw in href.lower() or kw in text for kw in self.nav_keywords):
+                    full_url = urljoin(base_url, href)
+                    parsed = urlparse(full_url)
+                    
+                    if parsed.netloc == base_domain or not parsed.netloc:
+                        if full_url not in discovered and full_url != base_url:
+                            if not any(x in href.lower() for x in ['#', 'javascript:', 'mailto:', 'tel:', '.pdf', '.jpg', '.png']):
+                                discovered.append(full_url)
+        
+        return discovered[:6]
     
     def _find_email(self, soup: BeautifulSoup, page_text: str) -> str:
         mailto_links = soup.find_all('a', href=re.compile(r'^mailto:', re.I))
@@ -173,12 +213,37 @@ class LeadEnricher:
             href = str(link.get('href', ''))
             email = href.replace('mailto:', '').split('?')[0].strip()
             if email and '@' in email:
-                if not any(x in email.lower() for x in ['example', 'test', 'domain', 'email@']):
+                if not any(x in email.lower() for x in ['example', 'test', 'domain', 'email@', 'noreply', 'no-reply']):
                     return email
         
         return extract_email_from_text(page_text)
     
     def _find_contact_name(self, soup: BeautifulSoup) -> str:
+        meta_author = soup.find('meta', attrs={'name': 'author'})
+        if meta_author:
+            author = meta_author.get('content', '')
+            if author and isinstance(author, str) and self._looks_like_name(author):
+                return clean_text(str(author))
+        
+        schema_scripts = soup.find_all('script', type='application/ld+json')
+        for script in schema_scripts:
+            try:
+                import json
+                script_content = script.string or ""
+                data = json.loads(script_content)
+                if isinstance(data, dict):
+                    for field in ['founder', 'author', 'employee', 'member']:
+                        if field in data:
+                            person = data[field]
+                            if isinstance(person, dict) and 'name' in person:
+                                name = person['name']
+                                if self._looks_like_name(name):
+                                    return clean_text(name)
+                            elif isinstance(person, str) and self._looks_like_name(person):
+                                return clean_text(person)
+            except:
+                pass
+        
         for pattern in self.director_patterns:
             elements = soup.find_all(string=re.compile(pattern, re.I))
             for elem in elements:
@@ -188,9 +253,15 @@ class LeadEnricher:
                     name = self._extract_name_from_text(text)
                     if name:
                         return name
+                    
+                    next_elem = parent.find_next(['h2', 'h3', 'h4', 'strong', 'b', 'p'])
+                    if next_elem:
+                        next_text = clean_text(next_elem.get_text())
+                        if self._looks_like_name(next_text):
+                            return next_text
         
         about_sections = soup.find_all(['section', 'div', 'article'], 
-                                       class_=re.compile(r'about|team|management|staff|bio|profile', re.I))
+                                       class_=re.compile(r'about|team|management|staff|bio|profile|founder|owner', re.I))
         for section in about_sections[:3]:
             name_candidates = section.find_all(['h2', 'h3', 'h4', 'h5', 'strong', 'b', 'span'])
             for candidate in name_candidates:
@@ -198,15 +269,30 @@ class LeadEnricher:
                 if self._looks_like_name(text):
                     return text
         
-        meta_author = soup.find('meta', attrs={'name': 'author'})
-        if meta_author:
-            author = meta_author.get('content', '')
-            if author and isinstance(author, str) and self._looks_like_name(author):
-                return clean_text(str(author))
+        title_tag = soup.find('title')
+        if title_tag:
+            title = title_tag.get_text()
+            name_match = re.search(r'^([A-Z][a-z]+\s+[A-Z][a-z]+)', title)
+            if name_match:
+                potential = name_match.group(1)
+                if self._looks_like_name(potential):
+                    return potential
         
         return ""
     
     def _extract_name_from_text(self, text: str) -> str:
+        patterns = [
+            r'(?:founder|owner|director|ceo|principal|proprietor)[:\s]+([A-Z][a-z]+\s+[A-Z][a-z]+)',
+            r'([A-Z][a-z]+\s+[A-Z][a-z]+)[,\s]+(?:founder|owner|director|ceo|principal)',
+            r'(?:by|with|from)\s+([A-Z][a-z]+\s+[A-Z][a-z]+)',
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, text, re.I)
+            if match:
+                name = match.group(1).strip()
+                if self._looks_like_name(name):
+                    return name
+        
         words = text.split()
         for i, word in enumerate(words):
             if self._looks_like_name(word) and i + 1 < len(words):
@@ -223,9 +309,18 @@ class LeadEnricher:
             return False
         exclude_words = ['the', 'and', 'our', 'team', 'about', 'contact', 'director', 
                         'ceo', 'founder', 'welcome', 'meet', 'staff', 'practitioner',
-                        'ltd', 'limited', 'inc', 'clinic', 'practice', 'services']
+                        'ltd', 'limited', 'inc', 'clinic', 'practice', 'services',
+                        'physiotherapy', 'osteopathy', 'chiropractic', 'dental', 'therapy',
+                        'health', 'wellness', 'clinic', 'centre', 'center', 'studio',
+                        'home', 'page', 'privacy', 'policy', 'terms', 'conditions']
         if any(w.lower() in exclude_words for w in words):
             return False
+        first_names_uk = ['james', 'john', 'david', 'michael', 'robert', 'william', 'richard', 'thomas', 
+                          'sarah', 'emma', 'hannah', 'helen', 'claire', 'kate', 'anna', 'mary', 'jane',
+                          'peter', 'paul', 'mark', 'chris', 'stephen', 'andrew', 'ian', 'simon', 'alex']
+        first_word = words[0].lower()
+        if first_word in first_names_uk:
+            return True
         return all(w[0].isupper() and w.replace("'", "").replace("-", "").isalpha() for w in words)
     
     def _estimate_employee_count(self, soup: BeautifulSoup, page_text: str) -> str:
@@ -268,7 +363,7 @@ class LeadEnricher:
     def _search_linkedin_for_contact(self, lead: BusinessLead) -> str:
         try:
             town = lead.search_town or lead.location.split(',')[0] if lead.location else ""
-            search_query = f"{lead.company_name} {town} linkedin founder director owner"
+            search_query = f'site:linkedin.com/in "{lead.company_name}" {town} owner founder director'
             
             search_url = f"https://www.bing.com/search?q={quote_plus(search_query)}"
             
@@ -283,17 +378,18 @@ class LeadEnricher:
             
             soup = BeautifulSoup(response.text, 'lxml')
             
-            snippets = soup.find_all(['p', 'span', 'li'], class_=re.compile(r'snippet|desc|caption', re.I))
-            if not snippets:
-                snippets = soup.find_all('p')
+            results = soup.find_all(['li', 'div'], class_=re.compile(r'b_algo|result', re.I))
+            if not results:
+                results = soup.find_all('li')
             
-            for snippet in snippets[:10]:
-                text = snippet.get_text()
+            for result in results[:5]:
+                text = result.get_text()
                 
-                if 'linkedin' in text.lower():
+                if 'linkedin.com/in/' in text.lower():
                     title_patterns = [
-                        r'([A-Z][a-z]+\s+[A-Z][a-z]+)\s*[-–|]\s*(?:founder|owner|director|ceo|managing)',
-                        r'(?:founder|owner|director|ceo|managing)[:\s]+([A-Z][a-z]+\s+[A-Z][a-z]+)',
+                        r'([A-Z][a-z]+\s+[A-Z][a-z]+)\s*[-–|]\s*(?:founder|owner|director|ceo|managing|principal)',
+                        r'(?:founder|owner|director|ceo|managing|principal)[:\s]+([A-Z][a-z]+\s+[A-Z][a-z]+)',
+                        r'^([A-Z][a-z]+\s+[A-Z][a-z]+)\s+[-|]',
                     ]
                     for pattern in title_patterns:
                         match = re.search(pattern, text, re.I)
@@ -368,10 +464,10 @@ class LeadEnricher:
             officers_data = officers_response.json()
             officers = officers_data.get("items", [])
             
-            for officer in officers:
-                if officer.get("resigned_on"):
-                    continue
-                
+            active_officers = [o for o in officers if not o.get("resigned_on")]
+            active_officers.sort(key=lambda x: x.get("appointed_on", ""), reverse=True)
+            
+            for officer in active_officers:
                 role = officer.get("officer_role", "").lower()
                 if role in ["director", "managing-director", "corporate-director"]:
                     name = officer.get("name", "")
@@ -380,9 +476,7 @@ class LeadEnricher:
                         if formatted:
                             return formatted
             
-            for officer in officers:
-                if officer.get("resigned_on"):
-                    continue
+            for officer in active_officers:
                 name = officer.get("name", "")
                 if name:
                     formatted = self._format_companies_house_name(name)

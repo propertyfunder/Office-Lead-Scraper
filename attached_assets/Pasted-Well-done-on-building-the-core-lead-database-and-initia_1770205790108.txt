@@ -1,0 +1,43 @@
+Well done on building the core lead database and initiating enrichment.
+
+Now, let's improve the enrichment logic to increase the number of records with valid principal names and email addresses.
+
+==================================================
+🔁 SMARTER ENRICHMENT STRATEGY
+==================================================
+
+1. ✅ **Name & Email Fallbacks**
+   If contact name or email is missing:
+   - First, scan the company **homepage** for visible text patterns like:
+     - `Owner`, `Founder`, `Director`, `About`, `Meet the Team`
+     - Look for `<meta name="author">` and social media links too.
+   - Instead of assuming `/about-us`, `/team`, etc., **crawl** and **parse homepage and top-level nav links** for names/emails.
+   - Use `soup.find_all("a")` to dynamically extract team or contact pages instead of hardcoding URLs.
+
+2. 🔎 **Companies House Lookup**
+   - For any business with a valid company name and town, query **Companies House API**.
+   - If found, extract **most recently appointed active director**.
+   - Save in `contact_name`, and mark `enrichment_source = "companies_house"`.
+
+3. 🔗 **LinkedIn Light Touch (No Scraping)**
+   - Use search engine queries like:
+     `"Site:linkedin.com/in/ {company name} {town}"`
+   - If a match found, extract:
+     - **Full Name**
+     - **Job Title** (must be Owner, Director, Founder, Principal, etc.)
+   - Save in `linkedin_url` and `contact_name`.
+
+4. ✉️ **Email Strategy**
+   - Accept Gmail or personal email addresses if:
+     - The business is likely a sole trader.
+     - It's the only email found.
+   - Avoid using only `info@`, `contact@` unless no alternative exists.
+
+5. 🗂️ **Tracking Enrichment Status**
+   - Populate:
+     - `enrichment_status`: `complete`, `missing_email`, `missing_name`, `incomplete`
+     - `enrichment_source`: `website`, `linkedin`, `companies_house`, etc.
+
+6. 🧼 **Avoid Duplicate Enrichment**
+   - If a lead already has both `email` and `contact_name`, skip enrichment.
+   - Only enrich leads missing one or both fields.
