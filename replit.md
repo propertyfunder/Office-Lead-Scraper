@@ -197,6 +197,10 @@ Recent run for Guildford found 173+ unique leads including:
 - **Rate Limits**: Both APIs have usage limits (Google: 1000 requests/day free)
 
 ## Recent Changes
+- 2026-02-04: Added batch enrichment command (--enrich-existing) to re-enrich leads missing contact name or email
+- 2026-02-04: Added enrichment_source and enrichment_status fields to track data provenance
+- 2026-02-04: Enhanced enricher to check multiple website pages (About, Team, Contact, etc.)
+- 2026-02-04: Added Companies House fallback for director name lookup
 - 2026-02-03: Expanded wellness search area to include 11 towns within 10-mile radius of Godalming Business Centre
 - 2026-02-03: Added enhanced duplicate checking (by name, website, location, and Google Place ID)
 - 2026-02-03: Added place_id and search_town fields to track lead origins and enable deduplication

@@ -1,0 +1,66 @@
+✅ Well done — you've already built a strong database of potential Unit 8 occupiers at Godalming Business Centre.
+
+🏗️ Now let's take it further by enriching the dataset with:
+  - The **name of the business principal** (e.g. owner, founder, director)
+  - A **contactable email address**
+
+============================================================
+🎯 GOAL: Enrich each lead with human contact info
+============================================================
+
+Only enrich leads that are **missing contact_name and/or email**.
+
+For each of these:
+
+------------------------------------------------------------
+1. 🧍 Find the Principal or Owner's Name
+------------------------------------------------------------
+Use these sources **in order of reliability**:
+
+🔹 a) **Company website**  
+   - Check "About", "Team", or "Contact" pages.
+   - Look for named individuals with titles like "Owner", "Director", "Founder", or "Principal".
+
+🔹 b) **LinkedIn (Preview Only)**  
+   - Search business name + location.
+   - If a matching LinkedIn page exists:
+     - Identify the top-listed person with a relevant title.
+     - ❗ Do not scrape LinkedIn directly — only use info from Google previews or summaries.
+
+🔹 c) **Companies House**  
+   - If no match from above, search for a close or exact company name match.
+   - Extract the most recent **active director**.
+
+------------------------------------------------------------
+2. 📧 Find a Valid Email Address
+------------------------------------------------------------
+🔍 Try:
+  - The company's website footer or "Contact" page (`mailto:` or visible email).
+  - LinkedIn preview summaries if available.
+  - Public business directories (if email is plainly visible).
+
+✅ Accept:
+  - Business domain emails (e.g. `info@myclinic.co.uk`, `laura@osteopathyhub.com`)
+  - Gmail/Hotmail/Yahoo addresses — **OK for small or solo wellness businesses**
+
+❌ Reject:
+  - Generic forms with no actual email
+  - Third-party lead generation portals
+
+------------------------------------------------------------
+3. 🔒 Anti-Scraping Rules
+------------------------------------------------------------
+- **Do not** scrape protected platforms like LinkedIn or Google Maps directly.
+- Use only **Google/Bing preview summaries**, public data, or Companies House open search.
+
+------------------------------------------------------------
+📥 Save Results Into Existing Database
+------------------------------------------------------------
+Update each record with:
+
+- `contact_name`
+- `email`
+- `enrichment_source`: `'website' | 'linkedin' | 'companies_house' | 'not_found'`
+- `enrichment_status`: `'complete' | 'incomplete'`
+
+🚫 Skip leads that already have this info.

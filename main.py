@@ -12,7 +12,7 @@ from typing import List, Set
 
 from src.models import BusinessLead
 from src.scrapers import GoogleSearchScraper, YellScraper, CompaniesHouseScraper, CompaniesHouseAPIScraper, GooglePlacesScraper
-from src.enricher import LeadEnricher
+from src.enricher import LeadEnricher, batch_enrich_leads
 from src.ai_scorer import AILeadScorer
 from src.utils import save_leads_to_csv, load_existing_keys, is_target_sector, set_verbose, load_existing_leads_for_dedup, is_duplicate_lead, add_lead_to_existing
 
@@ -145,6 +145,77 @@ def deduplicate_leads(leads: List[BusinessLead], existing_keys: Set[str]) -> Lis
     
     return unique_leads
 
+def load_leads_from_csv(filepath: str) -> List[BusinessLead]:
+    import csv
+    leads = []
+    if not os.path.exists(filepath):
+        return leads
+    
+    with open(filepath, 'r', encoding='utf-8') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            lead = BusinessLead(
+                company_name=row.get('company_name', ''),
+                website=row.get('website', ''),
+                sector=row.get('sector', ''),
+                contact_name=row.get('contact_name', ''),
+                email=row.get('email', ''),
+                linkedin=row.get('linkedin', ''),
+                location=row.get('location', ''),
+                employee_count=row.get('employee_count', ''),
+                source=row.get('source', ''),
+                ai_score=row.get('ai_score', ''),
+                ai_reason=row.get('ai_reason', ''),
+                tag=row.get('tag', ''),
+                phone=row.get('phone', ''),
+                google_rating=row.get('google_rating', ''),
+                place_id=row.get('place_id', ''),
+                search_town=row.get('search_town', ''),
+                category=row.get('category', ''),
+                enrichment_source=row.get('enrichment_source', ''),
+                enrichment_status=row.get('enrichment_status', '')
+            )
+            leads.append(lead)
+    
+    return leads
+
+def run_batch_enrichment(filepath: str, verbose: bool = False):
+    print(f"\n{'='*60}")
+    print("BATCH ENRICHMENT MODE")
+    print(f"{'='*60}")
+    
+    if not os.path.exists(filepath):
+        print(f"Error: File not found: {filepath}")
+        return
+    
+    leads = load_leads_from_csv(filepath)
+    print(f"Loaded {len(leads)} leads from {filepath}")
+    
+    needs_enrichment = [l for l in leads if not l.contact_name or not l.email]
+    print(f"Leads needing enrichment: {len(needs_enrichment)}")
+    
+    if not needs_enrichment:
+        print("All leads already have contact name and email. Nothing to do.")
+        return
+    
+    enriched_leads, stats = batch_enrich_leads(leads, skip_complete=True)
+    
+    save_leads_to_csv(enriched_leads, filepath, mode='w')
+    
+    print(f"\n{'='*60}")
+    print("ENRICHMENT COMPLETE")
+    print(f"{'='*60}")
+    print(f"Total leads: {stats['total']}")
+    print(f"Skipped (already complete): {stats['skipped']}")
+    print(f"Enriched: {stats['enriched']}")
+    print(f"  - Complete (email + contact): {stats['complete']}")
+    print(f"  - Incomplete: {stats['incomplete']}")
+    print(f"\nSources used:")
+    for source, count in stats['sources'].items():
+        if count > 0:
+            print(f"  - {source}: {count}")
+    print(f"\nResults saved to: {filepath}")
+
 def filter_qualified_leads(leads: List[BusinessLead], require_enrichment: bool = True) -> tuple:
     if not require_enrichment:
         return leads, []
@@ -230,6 +301,11 @@ Examples:
         action='store_true',
         help='Only save leads with both email and named contact'
     )
+    parser.add_argument(
+        '--enrich-existing',
+        action='store_true',
+        help='Re-enrich existing leads in CSV that are missing contact name or email'
+    )
     
     args = parser.parse_args()
     
@@ -240,6 +316,10 @@ Examples:
     print("Business Lead Scraper for Office Leasing")
     print(f"Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("="*60)
+    
+    if args.enrich_existing:
+        run_batch_enrichment(args.output, args.verbose)
+        return
     
     if args.town:
         towns = [args.town]

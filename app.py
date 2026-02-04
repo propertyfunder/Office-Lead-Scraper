@@ -38,6 +38,8 @@ def get_stats(leads, category=None):
     with_contact = sum(1 for l in leads if l.get('contact_name'))
     with_phone = sum(1 for l in leads if l.get('phone'))
     with_website = sum(1 for l in leads if l.get('website'))
+    enriched_complete = sum(1 for l in leads if l.get('enrichment_status') == 'complete')
+    enriched_incomplete = sum(1 for l in leads if l.get('enrichment_status') == 'incomplete')
     
     avg_score = 0
     scored = [l for l in leads if l.get('ai_score')]
@@ -53,6 +55,8 @@ def get_stats(leads, category=None):
         'with_contact': with_contact,
         'with_phone': with_phone,
         'with_website': with_website,
+        'enriched_complete': enriched_complete,
+        'enriched_incomplete': enriched_incomplete,
         'avg_score': round(avg_score, 1)
     }
 
@@ -113,7 +117,8 @@ def download_csv(category):
     output = io.StringIO()
     fieldnames = ['company_name', 'sector', 'location', 'website', 'contact_name', 
                   'email', 'phone', 'linkedin', 'ai_score', 'ai_reason', 'tag', 
-                  'google_rating', 'category', 'place_id', 'search_town']
+                  'google_rating', 'category', 'place_id', 'search_town', 
+                  'enrichment_source', 'enrichment_status']
     writer = csv.DictWriter(output, fieldnames=fieldnames, extrasaction='ignore')
     writer.writeheader()
     writer.writerows(leads)

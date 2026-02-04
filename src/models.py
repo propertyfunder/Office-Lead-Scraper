@@ -20,6 +20,8 @@ class BusinessLead:
     place_id: str = ""
     search_town: str = ""
     category: str = ""  # 'unit8' for wellness/clinical, 'office' for general office
+    enrichment_source: str = ""  # 'website', 'linkedin', 'companies_house', 'not_found'
+    enrichment_status: str = ""  # 'complete', 'incomplete'
     
     def to_dict(self) -> dict:
         return asdict(self)
