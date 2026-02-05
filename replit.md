@@ -196,7 +196,23 @@ Recent run for Guildford found 173+ unique leads including:
 - **Google Search**: Blocked (CAPTCHA) - use Google Places API instead
 - **Rate Limits**: Both APIs have usage limits (Google: 1000 requests/day free)
 
+## Sector Categories (Normalized)
+All leads are classified into exactly one category:
+- Physiotherapy
+- Mental Health
+- Massage Therapy
+- Chiropractic
+- Osteopathy
+- Aesthetics/Beauty
+- Yoga/Pilates
+- Nutrition
+- General Wellness
+
 ## Recent Changes
+- 2026-02-05: **Sector normalization** - Classifies businesses into exactly 9 categories (Physiotherapy, Mental Health, etc.)
+- 2026-02-05: **Enhanced website crawl** - Deep mode visits Contact, About, Team, Staff, Book pages
+- 2026-02-05: **Improved owner extraction** - Looks for "Lead Therapist", "Meet the Team", "About Me" phrases
+- 2026-02-05: **Diagnostic logging** - Shows when CH/Website/LinkedIn are attempted (not just when successful)
 - 2026-02-05: **OpenAI guardrails** - Max 3 calls per record, skip if email AND contact_name present, console logging when skipped
 - 2026-02-05: **LinkedIn headcount filter** - Skip large orgs (50+ employees) to focus on small businesses
 - 2026-02-05: **OpenAI session tracking** - Track tokens and calls per session with reset capability

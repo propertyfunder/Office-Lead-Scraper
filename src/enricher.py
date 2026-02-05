@@ -112,12 +112,30 @@ class LeadEnricher:
             r'director[s]?', r'managing director', r'md', r'ceo', 
             r'founder', r'owner', r'partner', r'principal',
             r'proprietor', r'clinical director', r'practice owner',
+            r'lead\s+therapist', r'head\s+therapist', r'senior\s+therapist',
+            r'meet\s+the\s+team', r'about\s+me', r'your\s+therapist',
             r'dr\.?\s+', r'physiotherapist', r'osteopath', r'therapist'
         ]
         self.companies_house_api_key = os.environ.get("COMPANIES_HOUSE_API_KEY", "")
         self.ch_base_url = "https://api.company-information.service.gov.uk"
         self.generic_email_prefixes = ['info', 'contact', 'enquiries', 'hello', 'admin', 'reception', 'office', 'mail', 'enquiry', 'general', 'support', 'help', 'sales']
-        self.nav_keywords = ['about', 'team', 'contact', 'people', 'staff', 'who', 'meet', 'practice', 'practitioner', 'therapist', 'our-', 'the-']
+        self.nav_keywords = ['about', 'team', 'contact', 'people', 'staff', 'who', 'meet', 'practice', 'practitioner', 'therapist', 'our-', 'the-', 'book', 'booking', 'appointment']
+        
+        self.sector_categories = [
+            'Physiotherapy', 'Mental Health', 'Massage Therapy', 'Chiropractic',
+            'Osteopathy', 'Aesthetics/Beauty', 'Yoga/Pilates', 'Nutrition', 'General Wellness'
+        ]
+        self.sector_keywords = {
+            'Physiotherapy': ['physiotherapy', 'physiotherapist', 'physio', 'physical therapy', 'rehabilitation', 'rehab', 'sports injury'],
+            'Mental Health': ['psychotherapy', 'counselling', 'counseling', 'therapy', 'mental health', 'psychology', 'psychologist', 'hypnotherapy', 'hypnotherapist', 'cbt', 'cognitive', 'anxiety', 'depression', 'mindfulness'],
+            'Massage Therapy': ['massage', 'sports massage', 'deep tissue', 'remedial massage', 'thai massage', 'swedish massage'],
+            'Chiropractic': ['chiropractic', 'chiropractor', 'spinal', 'spine'],
+            'Osteopathy': ['osteopath', 'osteopathy', 'cranial osteopathy'],
+            'Aesthetics/Beauty': ['aesthetics', 'aesthetic', 'beauty', 'facial', 'skin', 'botox', 'dermal', 'cosmetic', 'spa', 'laser', 'anti-aging'],
+            'Yoga/Pilates': ['yoga', 'pilates', 'reformer', 'mat pilates', 'studio', 'stretch', 'flexibility'],
+            'Nutrition': ['nutrition', 'nutritionist', 'dietitian', 'diet', 'weight loss', 'eating', 'food'],
+            'General Wellness': ['wellness', 'holistic', 'health', 'wellbeing', 'acupuncture', 'reflexology', 'reiki', 'healing', 'naturopath', 'clinic', 'dental', 'dentist', 'podiatry', 'podiatrist', 'gp', 'doctor', 'medical']
+        }
         
         self.openai_api_key = os.environ.get("OPENAI_API_KEY", "")
         self.cost_tracker = OpenAICostTracker()
@@ -380,8 +398,8 @@ class LeadEnricher:
                 if not lead.employee_count:
                     lead.employee_count = self._estimate_employee_count(homepage_soup, homepage_text)
                 
-                if not lead.sector or len(lead.sector) < 10:
-                    lead.sector = self._extract_sector(homepage_soup) or lead.sector
+                if not lead.sector or lead.sector not in self.sector_categories:
+                    lead.sector = self._extract_sector(homepage_soup, homepage_text)
         except Exception as e:
             log_verbose(f"Error checking homepage {lead.website}: {e}")
         
@@ -594,20 +612,46 @@ class LeadEnricher:
                     return str(count)
         return ""
     
-    def _extract_sector(self, soup: BeautifulSoup) -> str:
+    def _normalize_sector(self, text: str) -> str:
+        if not text:
+            return "General Wellness"
+        
+        text_lower = text.lower()
+        scores: dict[str, int] = {}
+        
+        for category, keywords in self.sector_keywords.items():
+            score = 0
+            for kw in keywords:
+                if kw in text_lower:
+                    score += 2 if len(kw) > 6 else 1
+            scores[category] = score
+        
+        if scores and max(scores.values()) > 0:
+            best_category = max(scores.keys(), key=lambda k: scores[k])
+            return best_category
+        
+        return "General Wellness"
+    
+    def _extract_sector(self, soup: BeautifulSoup, page_text: str = "") -> str:
+        all_text = page_text
+        
         meta_desc = soup.find('meta', attrs={'name': 'description'})
         if meta_desc:
             content = meta_desc.get('content', '')
             if content and isinstance(content, str):
-                return clean_text(content)[:200]
+                all_text += " " + content
         
         og_desc = soup.find('meta', attrs={'property': 'og:description'})
         if og_desc:
             content = og_desc.get('content', '')
             if content and isinstance(content, str):
-                return clean_text(content)[:200]
+                all_text += " " + content
         
-        return ""
+        h1_tags = soup.find_all('h1')
+        for h1 in h1_tags[:2]:
+            all_text += " " + h1.get_text()
+        
+        return self._normalize_sector(all_text)
     
     def _find_linkedin(self, soup: BeautifulSoup) -> str:
         linkedin_links = soup.find_all('a', href=re.compile(r'linkedin\.com', re.I))
