@@ -369,10 +369,12 @@ class LeadEnricher:
         
         homepage_soup = None
         homepage_text = ""
+        final_url = lead.website
         
         try:
             response = make_request(lead.website)
             if response:
+                final_url = response.url
                 homepage_soup = BeautifulSoup(response.text, 'lxml')
                 homepage_text = homepage_soup.get_text()
                 all_text = homepage_text
@@ -406,9 +408,18 @@ class LeadEnricher:
         if personal_email and contact:
             return personal_email, contact, source, all_text
         
-        discovered_pages = self._discover_nav_pages(homepage_soup, lead.website) if homepage_soup else []
+        parsed_url = urlparse(final_url)
+        root_url = f"{parsed_url.scheme}://{parsed_url.netloc}/"
+        discovered_pages = self._discover_nav_pages(homepage_soup, root_url) if homepage_soup else []
         
-        for page_url in discovered_pages[:4]:
+        if discovered_pages:
+            print(f"      Visiting {len(discovered_pages[:6])} subpages: {[p.split('/')[-2] if p.endswith('/') else p.split('/')[-1] for p in discovered_pages[:6]]}")
+        else:
+            has_soup = homepage_soup is not None
+            nav_count = len(homepage_soup.find_all(['nav', 'header'])) if homepage_soup else 0
+            print(f"      No subpages discovered (soup={has_soup}, navs={nav_count})")
+        
+        for page_url in discovered_pages[:6]:
             if personal_email and contact:
                 break
             
@@ -451,31 +462,42 @@ class LeadEnricher:
         final_email = personal_email or personal_domain_email or generic_email
         return final_email, contact, source, all_text[:5000]
     
+    def _normalize_domain(self, domain: str) -> str:
+        if domain.startswith('www.'):
+            return domain[4:]
+        return domain
+    
     def _discover_nav_pages(self, soup: BeautifulSoup, base_url: str) -> List[str]:
         if not soup:
             return []
         
         discovered = []
-        base_domain = urlparse(base_url).netloc
+        base_domain = self._normalize_domain(urlparse(base_url).netloc)
         
         nav_elements = soup.find_all(['nav', 'header'])
         if not nav_elements:
             nav_elements = [soup]
         
-        for nav in nav_elements:
-            links = nav.find_all('a', href=True)
-            for link in links:
-                href = str(link.get('href', '') or '')
-                text = link.get_text().lower().strip()
+        base_path = urlparse(base_url).path.rstrip('/')
+        
+        all_links = soup.find_all('a', href=True)
+        matched = 0
+        for link in all_links:
+            href = str(link.get('href', '') or '')
+            text = link.get_text().lower().strip()
+            
+            if any(kw in href.lower() or kw in text for kw in self.nav_keywords):
+                matched += 1
+                full_url = urljoin(base_url, href)
+                parsed = urlparse(full_url)
+                link_domain = self._normalize_domain(parsed.netloc)
+                link_path = parsed.path.rstrip('/')
                 
-                if any(kw in href.lower() or kw in text for kw in self.nav_keywords):
-                    full_url = urljoin(base_url, href)
-                    parsed = urlparse(full_url)
-                    
-                    if parsed.netloc == base_domain or not parsed.netloc:
-                        if full_url not in discovered and full_url != base_url:
-                            if not any(x in href.lower() for x in ['#', 'javascript:', 'mailto:', 'tel:', '.pdf', '.jpg', '.png']):
-                                discovered.append(full_url)
+                if link_domain == base_domain or not parsed.netloc:
+                    is_root = link_path == '' or link_path == base_path
+                    if full_url not in discovered and not is_root:
+                        if not any(x in href.lower() for x in ['#', 'javascript:', 'mailto:', 'tel:', '.pdf', '.jpg', '.png']):
+                            discovered.append(full_url)
         
         return discovered[:6]
     
@@ -540,6 +562,11 @@ class LeadEnricher:
                 if self._looks_like_name(text):
                     return text
         
+        page_text = soup.get_text()
+        names_found = self._extract_names_from_page_text(page_text)
+        if names_found:
+            return names_found[0]
+        
         title_tag = soup.find('title')
         if title_tag:
             title = title_tag.get_text()
@@ -550,6 +577,38 @@ class LeadEnricher:
                     return potential
         
         return ""
+    
+    def _extract_names_from_page_text(self, text: str) -> List[str]:
+        names = []
+        excluded_words = {
+            'book', 'online', 'privacy', 'policy', 'terms', 'conditions', 'cookie',
+            'consent', 'contact', 'about', 'home', 'services', 'read', 'more',
+            'learn', 'click', 'here', 'view', 'see', 'our', 'the', 'meet', 'team',
+            'dropdown', 'menu', 'custom', 'scroll', 'items', 'align', 'new', 'change',
+            'search', 'engine', 'rank', 'math', 'internet', 'explorer', 'comments',
+            'feed', 'physiotherapy', 'osteopathy', 'chiropractic', 'massage', 'therapy',
+            'paediatric', 'respiratory', 'musculo', 'skeletal', 'administrative', 'cardio'
+        }
+        
+        words = text.split()
+        for i in range(len(words) - 1):
+            word1 = words[i].strip()
+            word2 = words[i + 1].strip()
+            
+            word1_clean = re.sub(r'[^a-zA-Z]', '', word1)
+            word2_clean = re.sub(r'[^a-zA-Z]', '', word2)
+            
+            if (len(word1_clean) >= 3 and len(word2_clean) >= 3 and
+                word1_clean[0].isupper() and word2_clean[0].isupper() and
+                word1_clean[1:].islower() and word2_clean[1:].islower() and
+                word1_clean.lower() not in excluded_words and 
+                word2_clean.lower() not in excluded_words):
+                
+                potential_name = f"{word1_clean} {word2_clean}"
+                if self._looks_like_name(potential_name):
+                    names.append(potential_name)
+        
+        return names[:5]
     
     def _extract_name_from_text(self, text: str) -> str:
         patterns = [
@@ -574,29 +633,57 @@ class LeadEnricher:
         return ""
     
     def _looks_like_name(self, text: str) -> bool:
-        if not text or len(text) < 3 or len(text) > 50:
+        if not text or len(text) < 5 or len(text) > 50:
             return False
         words = text.split()
         if len(words) < 2 or len(words) > 4:
             return False
+        
+        for word in words:
+            clean_word = word.replace("'", "").replace("-", "")
+            if len(clean_word) < 2:
+                return False
+            if not any(c.lower() in 'aeiou' for c in clean_word):
+                return False
+            if not clean_word[0].isupper():
+                return False
+            if not clean_word.isalpha():
+                return False
+        
         exclude_words = ['the', 'and', 'our', 'team', 'about', 'contact', 'director', 
                         'ceo', 'founder', 'welcome', 'meet', 'staff', 'practitioner',
                         'ltd', 'limited', 'inc', 'clinic', 'practice', 'services',
                         'physiotherapy', 'osteopathy', 'chiropractic', 'dental', 'therapy',
                         'health', 'wellness', 'clinic', 'centre', 'center', 'studio',
                         'home', 'page', 'privacy', 'policy', 'terms', 'conditions',
-                        'read', 'more', 'view', 'all', 'latest', 'news']
+                        'read', 'more', 'view', 'all', 'latest', 'news', 'book', 'online',
+                        'new', 'title', 'menu', 'dropdown', 'items', 'custom', 'scroll']
         if any(w.lower() in exclude_words for w in words):
             return False
-        first_names_uk = ['james', 'john', 'david', 'michael', 'robert', 'william', 'richard', 'thomas', 
-                          'sarah', 'emma', 'hannah', 'helen', 'claire', 'kate', 'anna', 'mary', 'jane',
-                          'peter', 'paul', 'mark', 'chris', 'stephen', 'andrew', 'ian', 'simon', 'alex',
-                          'lucy', 'rachel', 'rebecca', 'sophie', 'laura', 'lisa', 'amy', 'victoria',
-                          'daniel', 'matthew', 'adam', 'ben', 'tom', 'nick', 'sam', 'joe', 'jack']
+        
+        first_names_uk = {
+            'james', 'john', 'david', 'michael', 'robert', 'william', 'richard', 'thomas', 
+            'sarah', 'emma', 'hannah', 'helen', 'claire', 'kate', 'anna', 'mary', 'jane',
+            'peter', 'paul', 'mark', 'chris', 'stephen', 'andrew', 'ian', 'simon', 'alex',
+            'lucy', 'rachel', 'rebecca', 'sophie', 'laura', 'lisa', 'amy', 'victoria',
+            'daniel', 'matthew', 'adam', 'ben', 'tom', 'nick', 'sam', 'joe', 'jack',
+            'jess', 'jessica', 'gemma', 'natalie', 'nicole', 'charlotte', 'olivia', 'emily',
+            'catherine', 'elizabeth', 'georgina', 'camila', 'michele', 'waqaar', 'ivaylo',
+            'bevan', 'wilson', 'donna', 'morgan', 'kim', 'joanne', 'sian', 'suneetha',
+            'limei', 'tricia', 'vanessa', 'ellen', 'nicola', 'donald', 'diana', 'julie',
+            'karen', 'susan', 'sharon', 'deborah', 'tracy', 'amanda', 'jennifer', 'alison',
+            'martin', 'gary', 'kevin', 'neil', 'stuart', 'alan', 'graham', 'philip', 'colin',
+            'caroline', 'fiona', 'paula', 'wendy', 'andrea', 'jacqueline', 'lesley', 'dawn',
+            'anthony', 'brian', 'barry', 'derek', 'tony', 'roger', 'keith', 'kenneth',
+            'sandra', 'linda', 'christine', 'margaret', 'janet', 'angela', 'gillian', 'denise',
+            'edward', 'carl', 'gordon', 'roy', 'trevor', 'wayne', 'jeffrey', 'russell',
+            'kerry', 'tara', 'zoe', 'holly', 'chloe', 'jade', 'megan', 'bethany', 'ellie',
+            'luke', 'ryan', 'jamie', 'lee', 'scott', 'craig', 'darren', 'sean', 'dean',
+            'abigail', 'molly', 'grace', 'lily', 'ella', 'daisy', 'freya', 'millie', 'poppy',
+            'george', 'harry', 'charlie', 'oscar', 'leo', 'theo', 'noah', 'jacob', 'alfie'
+        }
         first_word = words[0].lower()
-        if first_word in first_names_uk:
-            return True
-        return all(w[0].isupper() and w.replace("'", "").replace("-", "").isalpha() for w in words)
+        return first_word in first_names_uk
     
     def _estimate_employee_count(self, soup: BeautifulSoup, page_text: str) -> str:
         patterns = [
