@@ -13,6 +13,9 @@ from .utils import make_request, rate_limit, extract_email_from_text, guess_emai
 DAILY_OPENAI_COST_LIMIT = 2.00
 COST_PER_1K_TOKENS = 0.00015  # gpt-4o-mini pricing
 LINKEDIN_MAX_ATTEMPTS_PER_SESSION = 50
+OPENAI_MAX_CALLS_PER_RECORD = 3
+OPENAI_TARGET_TOKENS_PER_CALL = 1500
+HEADCOUNT_SKIP_THRESHOLD = 50
 
 class OpenAICostTracker:
     _instance = None
@@ -25,6 +28,8 @@ class OpenAICostTracker:
     
     def _init_tracker(self):
         self.cost_file = "/tmp/openai_enrichment_cost.json"
+        self.session_tokens = 0
+        self.session_calls = 0
         self._load_costs()
     
     def _load_costs(self):
@@ -81,8 +86,21 @@ class OpenAICostTracker:
         cost = (tokens_used / 1000) * COST_PER_1K_TOKENS
         self.daily_cost += cost
         self.call_count += 1
+        self.session_tokens += tokens_used
+        self.session_calls += 1
         self._save_costs()
         print(f"    [OpenAI] Used {tokens_used} tokens (${cost:.4f}). Daily total: ${self.daily_cost:.4f}/{DAILY_OPENAI_COST_LIMIT}")
+    
+    def get_session_stats(self) -> dict:
+        return {
+            'session_tokens': self.session_tokens,
+            'session_calls': self.session_calls
+        }
+    
+    def reset_session(self):
+        self.session_tokens = 0
+        self.session_calls = 0
+        print(f"    [OpenAI] Session stats reset")
     
     def get_remaining_budget(self) -> float:
         return max(0, DAILY_OPENAI_COST_LIMIT - self.daily_cost)
@@ -106,6 +124,7 @@ class LeadEnricher:
         self.linkedin_attempts = 0
         self.linkedin_max_attempts = LINKEDIN_MAX_ATTEMPTS_PER_SESSION
         self.linkedin_attempted = set()
+        self.openai_calls_per_record = {}
         
         self.invalid_names = {'new title', 'title', 'untitled', 'unknown', 'n/a', 'na', 
                               'none', 'test', 'admin', 'contact', 'info', 'owner', 'director',
@@ -118,10 +137,14 @@ class LeadEnricher:
         
         sources_tried = []
         website_text = ""
+        ch_attempted = False
+        website_attempted = False
+        openai_used_this_call = False
         
         try:
             print(f"  Enriching: {lead.company_name}")
             
+            ch_attempted = True
             if self.companies_house_api_key and not lead.contact_name:
                 ch_contact = self._get_director_from_companies_house(lead.company_name)
                 if ch_contact and self._is_valid_contact_name(ch_contact):
@@ -144,6 +167,7 @@ class LeadEnricher:
                 lead.enrichment_status = "complete"
                 return lead
             
+            website_attempted = True
             if lead.website and 'find-and-update.company-information' not in lead.website:
                 found_email, found_contact, source, text = self._enrich_from_website(lead)
                 website_text = text
@@ -173,7 +197,10 @@ class LeadEnricher:
                 lead.enrichment_status = "complete"
                 return lead
             
-            if not lead.contact_name and self.linkedin_attempts < self.linkedin_max_attempts:
+            ch_yielded_data = "companies_house" in sources_tried
+            website_yielded_data = "website" in sources_tried
+            
+            if ch_attempted and website_attempted and not ch_yielded_data and not website_yielded_data and not lead.contact_name and self.linkedin_attempts < self.linkedin_max_attempts:
                 if lead.place_id not in self.linkedin_attempted:
                     self.linkedin_attempted.add(lead.place_id or lead.company_name)
                     linkedin_contact = self._search_linkedin_for_contact(lead)
@@ -196,36 +223,56 @@ class LeadEnricher:
                 lead.enrichment_status = "complete"
                 return lead
             
-            if (not lead.contact_name or not lead.email) and self.openai_api_key:
-                if lead.ai_enriched != "true" and self.cost_tracker.can_make_call():
-                    if website_text or lead.website:
-                        if not website_text and lead.website:
-                            _, _, _, website_text = self._enrich_from_website(lead)
-                        if website_text:
-                            ai_contact, ai_email = self._openai_extract(lead, website_text)
-                            if ai_contact and self._is_valid_contact_name(ai_contact) and not lead.contact_name:
-                                lead.contact_name = normalize_name(ai_contact)
-                                lead.ai_enriched = "true"
+            record_key = lead.place_id or lead.company_name
+            calls_for_record = self.openai_calls_per_record.get(record_key, 0)
+            
+            should_use_openai = (
+                self.openai_api_key and
+                (not lead.contact_name or not lead.email) and
+                lead.ai_enriched != "true" and
+                calls_for_record < OPENAI_MAX_CALLS_PER_RECORD and
+                self.cost_tracker.can_make_call()
+            )
+            
+            if lead.contact_name and lead.email:
+                print(f"    [OpenAI] Skipped - already has email and contact_name")
+            elif not self.openai_api_key:
+                pass
+            elif lead.ai_enriched == "true":
+                print(f"    [OpenAI] Skipped - already enriched this record")
+            elif calls_for_record >= OPENAI_MAX_CALLS_PER_RECORD:
+                print(f"    [OpenAI] Skipped - max {OPENAI_MAX_CALLS_PER_RECORD} calls reached for this record")
+            elif not self.cost_tracker.can_make_call():
+                print(f"    [OpenAI] Skipped - daily budget exhausted (${DAILY_OPENAI_COST_LIMIT})")
+            elif should_use_openai:
+                if website_text or lead.website:
+                    if not website_text and lead.website:
+                        _, _, _, website_text = self._enrich_from_website(lead)
+                    if website_text:
+                        ai_contact, ai_email = self._openai_extract(lead, website_text)
+                        self.openai_calls_per_record[record_key] = calls_for_record + 1
+                        
+                        if ai_contact and self._is_valid_contact_name(ai_contact) and not lead.contact_name:
+                            lead.contact_name = normalize_name(ai_contact)
+                            lead.ai_enriched = "true"
+                            openai_used_this_call = True
+                            sources_tried.append("openai")
+                            print(f"    [OpenAI] Extracted contact: {lead.contact_name}")
+                            
+                            if not lead.email and lead.website:
+                                domain = extract_domain(lead.website)
+                                guessed = guess_email(lead.company_name, lead.contact_name, domain)
+                                if guessed:
+                                    lead.email = clean_email(guessed)
+                                    lead.email_guessed = "true"
+                                    print(f"    [Guessed] Email: {lead.email}")
+                        if ai_email and not lead.email:
+                            lead.email = clean_email(ai_email)
+                            lead.ai_enriched = "true"
+                            openai_used_this_call = True
+                            if "openai" not in sources_tried:
                                 sources_tried.append("openai")
-                                print(f"    [OpenAI] Extracted contact: {lead.contact_name}")
-                                
-                                if not lead.email and lead.website:
-                                    domain = extract_domain(lead.website)
-                                    guessed = guess_email(lead.company_name, lead.contact_name, domain)
-                                    if guessed:
-                                        lead.email = clean_email(guessed)
-                                        lead.email_guessed = "true"
-                                        print(f"    [Guessed] Email: {lead.email}")
-                            if ai_email and not lead.email:
-                                lead.email = clean_email(ai_email)
-                                lead.ai_enriched = "true"
-                                if "openai" not in sources_tried:
-                                    sources_tried.append("openai")
-                                print(f"    [OpenAI] Extracted email: {lead.email}")
-                elif lead.ai_enriched == "true":
-                    print(f"    [OpenAI] Already used on this record")
-                else:
-                    print(f"    [OpenAI] Daily budget exhausted (${DAILY_OPENAI_COST_LIMIT})")
+                            print(f"    [OpenAI] Extracted email: {lead.email}")
             
         except Exception as e:
             print(f"  Error enriching {lead.company_name}: {e}")
@@ -236,6 +283,7 @@ class LeadEnricher:
             lead.enrichment_source = "not_found"
         
         lead.enrichment_status = self._determine_status(lead)
+        object.__setattr__(lead, '_openai_used_this_call', openai_used_this_call)
         
         return lead
     
@@ -559,7 +607,17 @@ class LeadEnricher:
     
     def _search_linkedin_for_contact(self, lead: BusinessLead) -> str:
         if self.linkedin_attempts >= self.linkedin_max_attempts:
+            print(f"    [LinkedIn] Skipped - max {self.linkedin_max_attempts} attempts reached this session")
             return ""
+        
+        if lead.employee_count:
+            try:
+                count = int(str(lead.employee_count).replace('+', '').replace('-', '').split()[0])
+                if count >= HEADCOUNT_SKIP_THRESHOLD:
+                    print(f"    [LinkedIn] Skipped - large org ({count}+ employees)")
+                    return ""
+            except (ValueError, TypeError):
+                pass
         
         self.linkedin_attempts += 1
         
@@ -730,19 +788,13 @@ class LeadEnricher:
             from openai import OpenAI
             client = OpenAI(api_key=self.openai_api_key)
             
-            truncated_text = website_text[:3000]
+            truncated_text = website_text[:2000]
             
-            prompt = f"""Extract contact information from this website text for: {lead.company_name}
+            prompt = f"""Extract contact info for: {lead.company_name}
 
-Look for:
-1. Owner, Director, Founder, Principal, CEO, or main person's name
-2. Email address (prefer personal over info@/contact@)
-
-Website text:
-{truncated_text}
-
-Return JSON only: {{"name": "First Last" or null, "email": "email@domain.com" or null}}
-Only include if clearly found in the text. Return null for missing data."""
+Find: 1) Owner/Director/Founder name 2) Email (personal preferred)
+Text: {truncated_text}
+Return JSON: {{"name": "First Last" or null, "email": "x@y.com" or null}}"""
 
             response = client.chat.completions.create(
                 model="gpt-4o-mini",
@@ -793,6 +845,7 @@ def batch_enrich_leads(leads: List[BusinessLead], skip_complete: bool = True, fi
         "missing_name": 0,
         "incomplete": 0,
         "ai_enriched": 0,
+        "ai_enriched_this_session": 0,
         "sources": {"website": 0, "linkedin": 0, "companies_house": 0, "openai": 0, "not_found": 0}
     }
     
@@ -822,6 +875,9 @@ def batch_enrich_leads(leads: List[BusinessLead], skip_complete: bool = True, fi
         if lead.ai_enriched == "true":
             stats["ai_enriched"] += 1
         
+        if getattr(lead, '_openai_used_this_call', False):
+            stats["ai_enriched_this_session"] += 1
+        
         source = lead.enrichment_source or "not_found"
         if source in stats["sources"]:
             stats["sources"][source] += 1
@@ -831,9 +887,11 @@ def batch_enrich_leads(leads: List[BusinessLead], skip_complete: bool = True, fi
             print(f"    [Saved] Progress saved to {filepath}")
         
         if (i + 1) % 10 == 0:
+            session = enricher.cost_tracker.get_session_stats()
             print(f"  Progress: {i + 1}/{len(needs_enrichment)} leads processed")
             print(f"    Complete: {stats['complete']}, Missing email: {stats['missing_email']}, Missing name: {stats['missing_name']}")
-            print(f"    AI enriched: {stats['ai_enriched']}, OpenAI budget left: ${enricher.cost_tracker.get_remaining_budget():.2f}")
+            print(f"    AI enriched (total): {stats['ai_enriched']}, AI enriched (session): {stats['ai_enriched_this_session']}")
+            print(f"    OpenAI session: {session['session_calls']} calls, {session['session_tokens']} tokens, budget left: ${enricher.cost_tracker.get_remaining_budget():.2f}")
     
     if filepath:
         save_leads_to_csv(leads, filepath, mode='w')

@@ -197,6 +197,10 @@ Recent run for Guildford found 173+ unique leads including:
 - **Rate Limits**: Both APIs have usage limits (Google: 1000 requests/day free)
 
 ## Recent Changes
+- 2026-02-05: **OpenAI guardrails** - Max 3 calls per record, skip if email AND contact_name present, console logging when skipped
+- 2026-02-05: **LinkedIn headcount filter** - Skip large orgs (50+ employees) to focus on small businesses
+- 2026-02-05: **OpenAI session tracking** - Track tokens and calls per session with reset capability
+- 2026-02-05: **Reduced token usage** - Shortened OpenAI prompt, truncate text to 2000 chars (~500 tokens)
 - 2026-02-05: **New enrichment priority order**: Companies House → Website → LinkedIn → OpenAI (last resort)
 - 2026-02-05: **Email guessing** - Pattern firstname.lastname@domain.com when contact found but no email
 - 2026-02-05: **email_guessed flag** - Track whether email was guessed (true) or verified from website
