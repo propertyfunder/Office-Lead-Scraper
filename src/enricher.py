@@ -510,6 +510,42 @@ class LeadEnricher:
                 if not any(x in email.lower() for x in ['example', 'test', 'domain', 'email@', 'noreply', 'no-reply', 'unsubscribe']):
                     return email
         
+        schema_scripts = soup.find_all('script', type='application/ld+json')
+        for script in schema_scripts:
+            try:
+                script_content = script.string or ""
+                data = json.loads(script_content)
+                
+                items_to_check = []
+                if isinstance(data, dict):
+                    items_to_check.append(data)
+                    if '@graph' in data and isinstance(data['@graph'], list):
+                        items_to_check.extend(data['@graph'])
+                elif isinstance(data, list):
+                    items_to_check.extend(data)
+                
+                for item in items_to_check:
+                    if not isinstance(item, dict):
+                        continue
+                    email = item.get('email', '')
+                    if email and '@' in email:
+                        if not any(x in email.lower() for x in ['example', 'test', 'noreply', 'no-reply']):
+                            return email
+                    if 'contactPoint' in item:
+                        cp = item['contactPoint']
+                        if isinstance(cp, dict):
+                            email = cp.get('email', '')
+                            if email and '@' in email:
+                                return email
+                        elif isinstance(cp, list):
+                            for point in cp:
+                                if isinstance(point, dict):
+                                    email = point.get('email', '')
+                                    if email and '@' in email:
+                                        return email
+            except (json.JSONDecodeError, TypeError):
+                pass
+        
         return extract_email_from_text(page_text)
     
     def _find_contact_name(self, soup: BeautifulSoup) -> str:
