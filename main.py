@@ -179,7 +179,7 @@ def load_leads_from_csv(filepath: str) -> List[BusinessLead]:
     
     return leads
 
-def run_batch_enrichment(filepath: str, verbose: bool = False):
+def run_batch_enrichment(filepath: str, verbose: bool = False, save_interval: int = 1):
     print(f"\n{'='*60}")
     print("BATCH ENRICHMENT MODE")
     print(f"{'='*60}")
@@ -198,9 +198,7 @@ def run_batch_enrichment(filepath: str, verbose: bool = False):
         print("All leads already have contact name and email. Nothing to do.")
         return
     
-    enriched_leads, stats = batch_enrich_leads(leads, skip_complete=True)
-    
-    save_leads_to_csv(enriched_leads, filepath, mode='w')
+    enriched_leads, stats = batch_enrich_leads(leads, skip_complete=True, filepath=filepath, save_interval=save_interval)
     
     print(f"\n{'='*60}")
     print("ENRICHMENT COMPLETE")
@@ -210,6 +208,7 @@ def run_batch_enrichment(filepath: str, verbose: bool = False):
     print(f"Enriched: {stats['enriched']}")
     print(f"  - Complete (email + contact): {stats['complete']}")
     print(f"  - Incomplete: {stats['incomplete']}")
+    print(f"  - AI enriched: {stats['ai_enriched']}")
     print(f"\nSources used:")
     for source, count in stats['sources'].items():
         if count > 0:
@@ -306,6 +305,12 @@ Examples:
         action='store_true',
         help='Re-enrich existing leads in CSV that are missing contact name or email'
     )
+    parser.add_argument(
+        '--save-interval',
+        type=int,
+        default=1,
+        help='Save progress every N leads during enrichment (default: 1 = save after each lead)'
+    )
     
     args = parser.parse_args()
     
@@ -318,7 +323,7 @@ Examples:
     print("="*60)
     
     if args.enrich_existing:
-        run_batch_enrichment(args.output, args.verbose)
+        run_batch_enrichment(args.output, args.verbose, args.save_interval)
         return
     
     if args.town:

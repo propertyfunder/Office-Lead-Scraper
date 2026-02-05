@@ -197,6 +197,8 @@ Recent run for Guildford found 173+ unique leads including:
 - **Rate Limits**: Both APIs have usage limits (Google: 1000 requests/day free)
 
 ## Recent Changes
+- 2026-02-05: **Incremental saving** - Enrichment now saves after each lead to prevent data loss if process stops
+- 2026-02-05: Added --save-interval CLI option to control how often progress is saved during enrichment
 - 2026-02-04: **Refined enrichment workflow** with priority order: Companies House → Website → LinkedIn → OpenAI
 - 2026-02-04: Added OpenAI last-resort enrichment with $2 daily cost cap and ai_enriched tracking flag
 - 2026-02-04: LinkedIn retry guardrails (max 50 attempts per session)

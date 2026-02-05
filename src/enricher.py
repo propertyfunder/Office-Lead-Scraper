@@ -724,7 +724,9 @@ Only include if clearly found in the text. Return null for missing data."""
             return "", ""
 
 
-def batch_enrich_leads(leads: List[BusinessLead], skip_complete: bool = True) -> Tuple[List[BusinessLead], dict]:
+def batch_enrich_leads(leads: List[BusinessLead], skip_complete: bool = True, filepath: str = None, save_interval: int = 1) -> Tuple[List[BusinessLead], dict]:
+    from src.utils import save_leads_to_csv
+    
     enricher = LeadEnricher()
     stats = {
         "total": len(leads),
@@ -750,6 +752,8 @@ def batch_enrich_leads(leads: List[BusinessLead], skip_complete: bool = True) ->
     print(f"  (Skipping {stats['skipped']} already complete leads)")
     print(f"  OpenAI daily budget: ${enricher.cost_tracker.get_remaining_budget():.2f} remaining")
     print(f"  LinkedIn attempts limit: {enricher.linkedin_max_attempts} per session")
+    if filepath:
+        print(f"  Incremental save: Every {save_interval} lead(s) to {filepath}")
     
     for i, lead in enumerate(needs_enrichment):
         enricher.enrich(lead, skip_if_complete=False)
@@ -766,9 +770,17 @@ def batch_enrich_leads(leads: List[BusinessLead], skip_complete: bool = True) ->
         if source in stats["sources"]:
             stats["sources"][source] += 1
         
+        if filepath and (i + 1) % save_interval == 0:
+            save_leads_to_csv(leads, filepath, mode='w')
+            print(f"    [Saved] Progress saved to {filepath}")
+        
         if (i + 1) % 10 == 0:
             print(f"  Progress: {i + 1}/{len(needs_enrichment)} leads processed")
             print(f"    Complete: {stats['complete']}, Missing email: {stats['missing_email']}, Missing name: {stats['missing_name']}")
             print(f"    AI enriched: {stats['ai_enriched']}, OpenAI budget left: ${enricher.cost_tracker.get_remaining_budget():.2f}")
+    
+    if filepath:
+        save_leads_to_csv(leads, filepath, mode='w')
+        print(f"    [Final Save] All data saved to {filepath}")
     
     return leads, stats
