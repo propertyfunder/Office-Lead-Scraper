@@ -506,6 +506,7 @@ class LeadEnricher:
         for link in mailto_links:
             href = str(link.get('href', ''))
             email = href.replace('mailto:', '').split('?')[0].strip()
+            email = email.rstrip('.,;:!?)>]')
             if email and '@' in email:
                 if not any(x in email.lower() for x in ['example', 'test', 'domain', 'email@', 'noreply', 'no-reply', 'unsubscribe']):
                     return email
