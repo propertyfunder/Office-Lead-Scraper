@@ -8,7 +8,7 @@ from bs4 import BeautifulSoup
 import requests
 
 from .models import BusinessLead
-from .utils import make_request, rate_limit, extract_email_from_text, guess_email, extract_domain, clean_text, log_verbose, get_headers
+from .utils import make_request, rate_limit, extract_email_from_text, guess_email, extract_domain, clean_text, log_verbose, get_headers, clean_email, normalize_name
 
 DAILY_OPENAI_COST_LIMIT = 2.00
 COST_PER_1K_TOKENS = 0.00015  # gpt-4o-mini pricing
@@ -52,6 +52,14 @@ class OpenAICostTracker:
                 }, f)
         except:
             pass
+    
+    def get_stats(self) -> dict:
+        return {
+            'daily_cost': round(self.daily_cost, 4),
+            'daily_limit': DAILY_OPENAI_COST_LIMIT,
+            'calls_today': self.call_count,
+            'remaining_budget': round(self.get_remaining_budget(), 4)
+        }
     
     def can_make_call(self) -> bool:
         if str(date.today()) != self._get_stored_date():
@@ -108,56 +116,60 @@ class LeadEnricher:
             lead.enrichment_status = "complete"
             return lead
         
-        lead.ai_enriched = ""
-        
-        if not lead.website or 'find-and-update.company-information' in lead.website:
-            if not lead.contact_name:
-                lead = self._try_companies_house(lead)
-            lead.enrichment_status = self._determine_status(lead)
-            lead.enrichment_source = lead.enrichment_source or "not_found"
-            return lead
-        
         sources_tried = []
         website_text = ""
         
         try:
             print(f"  Enriching: {lead.company_name}")
             
-            found_email, found_contact, source, text = self._enrich_from_website(lead)
-            website_text = text
-            if found_email:
-                lead.email = found_email
-                print(f"    [Website] Found email: {found_email}")
-            if found_contact and self._is_valid_contact_name(found_contact) and not lead.contact_name:
-                lead.contact_name = found_contact
-                sources_tried.append("website")
-                print(f"    [Website] Found contact: {found_contact}")
-            if source and source not in sources_tried:
-                sources_tried.append(source)
-            
-            if self._is_complete(lead):
-                lead.enrichment_source = sources_tried[0] if sources_tried else "website"
-                lead.enrichment_status = "complete"
-                return lead
-            
             if self.companies_house_api_key and not lead.contact_name:
                 ch_contact = self._get_director_from_companies_house(lead.company_name)
                 if ch_contact and self._is_valid_contact_name(ch_contact):
-                    lead.contact_name = ch_contact
-                    if "companies_house" not in sources_tried:
-                        sources_tried.append("companies_house")
-                    print(f"    [Companies House] Found director: {ch_contact}")
+                    lead.contact_name = normalize_name(ch_contact)
+                    lead.contact_verified = "true"
+                    sources_tried.append("companies_house")
+                    print(f"    [Companies House] Found director: {lead.contact_name}")
                     
                     if not lead.email and lead.website:
                         domain = extract_domain(lead.website)
                         guessed = guess_email(lead.company_name, lead.contact_name, domain)
                         if guessed:
-                            lead.email = guessed
-                            lead.enrichment_source = "guessed_email"
-                            print(f"    [Guessed] Email: {guessed}")
+                            lead.email = clean_email(guessed)
+                            lead.email_guessed = "true"
+                            lead.enrichment_source = "companies_house"
+                            print(f"    [Guessed] Email: {lead.email}")
             
             if self._is_complete(lead):
-                lead.enrichment_source = sources_tried[0] if sources_tried else "companies_house"
+                lead.enrichment_source = "companies_house"
+                lead.enrichment_status = "complete"
+                return lead
+            
+            if lead.website and 'find-and-update.company-information' not in lead.website:
+                found_email, found_contact, source, text = self._enrich_from_website(lead)
+                website_text = text
+                if found_email and not lead.email:
+                    lead.email = clean_email(found_email)
+                    lead.email_guessed = ""
+                    if "website" not in sources_tried:
+                        sources_tried.append("website")
+                    print(f"    [Website] Found email: {lead.email}")
+                if found_contact and self._is_valid_contact_name(found_contact) and not lead.contact_name:
+                    lead.contact_name = normalize_name(found_contact)
+                    lead.contact_verified = "true"
+                    if "website" not in sources_tried:
+                        sources_tried.append("website")
+                    print(f"    [Website] Found contact: {lead.contact_name}")
+                    
+                    if not lead.email and lead.website:
+                        domain = extract_domain(lead.website)
+                        guessed = guess_email(lead.company_name, lead.contact_name, domain)
+                        if guessed:
+                            lead.email = clean_email(guessed)
+                            lead.email_guessed = "true"
+                            print(f"    [Guessed] Email: {lead.email}")
+            
+            if self._is_complete(lead):
+                lead.enrichment_source = sources_tried[0] if sources_tried else "website"
                 lead.enrichment_status = "complete"
                 return lead
             
@@ -166,37 +178,50 @@ class LeadEnricher:
                     self.linkedin_attempted.add(lead.place_id or lead.company_name)
                     linkedin_contact = self._search_linkedin_for_contact(lead)
                     if linkedin_contact and self._is_valid_contact_name(linkedin_contact):
-                        lead.contact_name = linkedin_contact
+                        lead.contact_name = normalize_name(linkedin_contact)
+                        lead.contact_verified = "true"
                         sources_tried.append("linkedin")
-                        print(f"    [LinkedIn] Found contact: {linkedin_contact}")
+                        print(f"    [LinkedIn] Found contact: {lead.contact_name}")
                         
                         if not lead.email and lead.website:
                             domain = extract_domain(lead.website)
                             guessed = guess_email(lead.company_name, lead.contact_name, domain)
                             if guessed:
-                                lead.email = guessed
-                                lead.enrichment_source = "guessed_email"
-                                print(f"    [Guessed] Email: {guessed}")
+                                lead.email = clean_email(guessed)
+                                lead.email_guessed = "true"
+                                print(f"    [Guessed] Email: {lead.email}")
             
             if self._is_complete(lead):
                 lead.enrichment_source = sources_tried[0] if sources_tried else "linkedin"
                 lead.enrichment_status = "complete"
                 return lead
             
-            if (not lead.contact_name or not lead.email) and self.openai_api_key and website_text:
+            if (not lead.contact_name or not lead.email) and self.openai_api_key:
                 if lead.ai_enriched != "true" and self.cost_tracker.can_make_call():
-                    ai_contact, ai_email = self._openai_extract(lead, website_text)
-                    if ai_contact and self._is_valid_contact_name(ai_contact) and not lead.contact_name:
-                        lead.contact_name = ai_contact
-                        lead.ai_enriched = "true"
-                        sources_tried.append("openai")
-                        print(f"    [OpenAI] Extracted contact: {ai_contact}")
-                    if ai_email and not lead.email:
-                        lead.email = ai_email
-                        lead.ai_enriched = "true"
-                        if "openai" not in sources_tried:
-                            sources_tried.append("openai")
-                        print(f"    [OpenAI] Extracted email: {ai_email}")
+                    if website_text or lead.website:
+                        if not website_text and lead.website:
+                            _, _, _, website_text = self._enrich_from_website(lead)
+                        if website_text:
+                            ai_contact, ai_email = self._openai_extract(lead, website_text)
+                            if ai_contact and self._is_valid_contact_name(ai_contact) and not lead.contact_name:
+                                lead.contact_name = normalize_name(ai_contact)
+                                lead.ai_enriched = "true"
+                                sources_tried.append("openai")
+                                print(f"    [OpenAI] Extracted contact: {lead.contact_name}")
+                                
+                                if not lead.email and lead.website:
+                                    domain = extract_domain(lead.website)
+                                    guessed = guess_email(lead.company_name, lead.contact_name, domain)
+                                    if guessed:
+                                        lead.email = clean_email(guessed)
+                                        lead.email_guessed = "true"
+                                        print(f"    [Guessed] Email: {lead.email}")
+                            if ai_email and not lead.email:
+                                lead.email = clean_email(ai_email)
+                                lead.ai_enriched = "true"
+                                if "openai" not in sources_tried:
+                                    sources_tried.append("openai")
+                                print(f"    [OpenAI] Extracted email: {lead.email}")
                 elif lead.ai_enriched == "true":
                     print(f"    [OpenAI] Already used on this record")
                 else:
@@ -207,7 +232,7 @@ class LeadEnricher:
         
         if sources_tried:
             lead.enrichment_source = sources_tried[0]
-        else:
+        elif not lead.enrichment_source:
             lead.enrichment_source = "not_found"
         
         lead.enrichment_status = self._determine_status(lead)

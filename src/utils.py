@@ -79,13 +79,35 @@ def extract_domain(url: str) -> str:
     url = url.replace("http://", "").replace("https://", "").replace("www.", "")
     return url.split("/")[0]
 
+def clean_email(email: str) -> str:
+    if not email:
+        return ""
+    email = re.sub(r'<[^>]+>', '', email)
+    email = re.sub(r'\s*Contact.*$', '', email, flags=re.I)
+    email = re.sub(r'\s*Clinic.*$', '', email, flags=re.I)
+    email = re.sub(r'\.{2,}.*$', '', email)
+    email = re.sub(r'[<>"\'\[\](){}]', '', email)
+    email = email.strip().lower()
+    if '@' in email and '.' in email.split('@')[-1]:
+        return email
+    return ""
+
+def normalize_name(name: str) -> str:
+    if not name:
+        return ""
+    name = re.sub(r'<[^>]+>', '', name)
+    name = re.sub(r'\s+', ' ', name).strip()
+    words = name.split()
+    return ' '.join(word.capitalize() for word in words)
+
 def save_leads_to_csv(leads: List[BusinessLead], filepath: str, mode: str = 'a'):
     file_exists = os.path.exists(filepath) and os.path.getsize(filepath) > 0
     fieldnames = [
         'company_name', 'website', 'sector', 'contact_name', 
         'email', 'phone', 'linkedin', 'location', 'employee_count', 
         'source', 'ai_score', 'ai_reason', 'tag', 'google_rating',
-        'place_id', 'search_town', 'category', 'enrichment_source', 'enrichment_status', 'ai_enriched'
+        'place_id', 'search_town', 'category', 'enrichment_source', 'enrichment_status', 
+        'ai_enriched', 'email_guessed', 'contact_verified'
     ]
     with open(filepath, mode, newline='', encoding='utf-8') as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)

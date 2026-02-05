@@ -20,9 +20,11 @@ class BusinessLead:
     place_id: str = ""
     search_town: str = ""
     category: str = ""  # 'unit8' for wellness/clinical, 'office' for general office
-    enrichment_source: str = ""  # 'website', 'linkedin', 'companies_house', 'openai', 'not_found'
+    enrichment_source: str = ""  # 'website', 'linkedin', 'companies_house', 'openai', 'guessed_email', 'not_found'
     enrichment_status: str = ""  # 'complete', 'missing_email', 'missing_name', 'incomplete'
-    ai_enriched: str = ""  # 'true' if OpenAI was used for enrichment, 'false' or empty otherwise
+    ai_enriched: str = ""  # 'true' if OpenAI was used for enrichment
+    email_guessed: str = ""  # 'true' if email was guessed from name+domain pattern
+    contact_verified: str = ""  # 'true' if contact found from authoritative source (CH, website)
     
     def to_dict(self) -> dict:
         return asdict(self)
