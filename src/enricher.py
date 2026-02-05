@@ -146,6 +146,7 @@ class LeadEnricher:
             
             ch_attempted = True
             if self.companies_house_api_key and not lead.contact_name:
+                print(f"    [Companies House] Searching for director...")
                 ch_contact = self._get_director_from_companies_house(lead.company_name)
                 if ch_contact and self._is_valid_contact_name(ch_contact):
                     lead.contact_name = normalize_name(ch_contact)
@@ -161,6 +162,12 @@ class LeadEnricher:
                             lead.email_guessed = "true"
                             lead.enrichment_source = "companies_house"
                             print(f"    [Guessed] Email: {lead.email}")
+                else:
+                    print(f"    [Companies House] No director found")
+            elif not self.companies_house_api_key:
+                print(f"    [Companies House] Skipped - no API key")
+            elif lead.contact_name:
+                print(f"    [Companies House] Skipped - already has contact: {lead.contact_name}")
             
             if self._is_complete(lead):
                 lead.enrichment_source = "companies_house"
@@ -169,6 +176,7 @@ class LeadEnricher:
             
             website_attempted = True
             if lead.website and 'find-and-update.company-information' not in lead.website:
+                print(f"    [Website] Checking {lead.website[:50]}...")
                 found_email, found_contact, source, text = self._enrich_from_website(lead)
                 website_text = text
                 if found_email and not lead.email:
@@ -191,6 +199,10 @@ class LeadEnricher:
                             lead.email = clean_email(guessed)
                             lead.email_guessed = "true"
                             print(f"    [Guessed] Email: {lead.email}")
+                if not found_email and not found_contact:
+                    print(f"    [Website] No contact/email found")
+            elif not lead.website:
+                print(f"    [Website] Skipped - no website URL")
             
             if self._is_complete(lead):
                 lead.enrichment_source = sources_tried[0] if sources_tried else "website"
