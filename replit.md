@@ -197,6 +197,10 @@ Recent run for Guildford found 173+ unique leads including:
 - **Rate Limits**: Both APIs have usage limits (Google: 1000 requests/day free)
 
 ## Recent Changes
+- 2026-02-05: **Enhanced Dashboard** - Added filtering by enrichment status and source, download filtered CSVs
+- 2026-02-05: **Improved name validation** - Reject placeholder names like "New Title", require two-word names
+- 2026-02-05: **LinkedIn tracking** - Track attempted profiles to prevent re-querying same businesses
+- 2026-02-05: **Reordered enrichment priority**: Website → Companies House → LinkedIn → OpenAI (as per user request)
 - 2026-02-05: **Incremental saving** - Enrichment now saves after each lead to prevent data loss if process stops
 - 2026-02-05: Added --save-interval CLI option to control how often progress is saved during enrichment
 - 2026-02-04: **Refined enrichment workflow** with priority order: Companies House → Website → LinkedIn → OpenAI

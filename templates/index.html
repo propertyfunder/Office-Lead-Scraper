@@ -224,12 +224,20 @@
                     <div class="label">Total Leads</div>
                 </div>
                 <div class="stat-card">
+                    <div class="number">{{ unit8_stats.enriched_complete }}</div>
+                    <div class="label">Complete</div>
+                </div>
+                <div class="stat-card">
                     <div class="number">{{ unit8_stats.with_email }}</div>
                     <div class="label">With Email</div>
                 </div>
                 <div class="stat-card">
                     <div class="number">{{ unit8_stats.with_contact }}</div>
                     <div class="label">Named Contacts</div>
+                </div>
+                <div class="stat-card">
+                    <div class="number">{{ unit8_stats.ai_enriched }}</div>
+                    <div class="label">AI Enriched</div>
                 </div>
                 <div class="stat-card">
                     <div class="number">{{ unit8_stats.avg_score }}</div>
@@ -244,6 +252,22 @@
                     <option value="8">8+ Score</option>
                     <option value="7">7+ Score</option>
                     <option value="5">5+ Score</option>
+                </select>
+                <select id="unit8-status">
+                    <option value="">All Status</option>
+                    <option value="complete">Complete</option>
+                    <option value="incomplete">Incomplete</option>
+                    <option value="missing_email">Missing Email</option>
+                    <option value="missing_name">Missing Name</option>
+                </select>
+                <select id="unit8-source">
+                    <option value="">All Sources</option>
+                    <option value="website">Website</option>
+                    <option value="companies_house">Companies House</option>
+                    <option value="linkedin">LinkedIn</option>
+                    <option value="openai">OpenAI</option>
+                    <option value="guessed_email">Guessed Email</option>
+                    <option value="not_found">Not Found</option>
                 </select>
                 <button class="btn" onclick="filterLeads('unit8')">Filter</button>
                 <button class="btn btn-secondary" onclick="resetFilter('unit8')">Reset</button>
@@ -301,12 +325,20 @@
                     <div class="label">Total Leads</div>
                 </div>
                 <div class="stat-card">
+                    <div class="number">{{ office_stats.enriched_complete }}</div>
+                    <div class="label">Complete</div>
+                </div>
+                <div class="stat-card">
                     <div class="number">{{ office_stats.with_email }}</div>
                     <div class="label">With Email</div>
                 </div>
                 <div class="stat-card">
                     <div class="number">{{ office_stats.with_contact }}</div>
                     <div class="label">Named Contacts</div>
+                </div>
+                <div class="stat-card">
+                    <div class="number">{{ office_stats.ai_enriched }}</div>
+                    <div class="label">AI Enriched</div>
                 </div>
                 <div class="stat-card">
                     <div class="number">{{ office_stats.avg_score }}</div>
@@ -321,6 +353,22 @@
                     <option value="8">8+ Score</option>
                     <option value="7">7+ Score</option>
                     <option value="5">5+ Score</option>
+                </select>
+                <select id="office-status">
+                    <option value="">All Status</option>
+                    <option value="complete">Complete</option>
+                    <option value="incomplete">Incomplete</option>
+                    <option value="missing_email">Missing Email</option>
+                    <option value="missing_name">Missing Name</option>
+                </select>
+                <select id="office-source">
+                    <option value="">All Sources</option>
+                    <option value="website">Website</option>
+                    <option value="companies_house">Companies House</option>
+                    <option value="linkedin">LinkedIn</option>
+                    <option value="openai">OpenAI</option>
+                    <option value="guessed_email">Guessed Email</option>
+                    <option value="not_found">Not Found</option>
                 </select>
                 <button class="btn" onclick="filterLeads('office')">Filter</button>
                 <button class="btn btn-secondary" onclick="resetFilter('office')">Reset</button>
@@ -383,11 +431,15 @@
         function filterLeads(category) {
             const search = document.getElementById(category + '-search').value;
             const minScore = document.getElementById(category + '-score').value;
+            const status = document.getElementById(category + '-status')?.value || '';
+            const source = document.getElementById(category + '-source')?.value || '';
             
             const params = new URLSearchParams();
             params.set('category', category);
             if (search) params.set('search', search);
             if (minScore) params.set('min_score', minScore);
+            if (status) params.set('status', status);
+            if (source) params.set('source', source);
             
             fetch('/api/leads?' + params.toString())
                 .then(r => r.json())
@@ -397,11 +449,25 @@
         function resetFilter(category) {
             document.getElementById(category + '-search').value = '';
             document.getElementById(category + '-score').value = '';
+            const statusEl = document.getElementById(category + '-status');
+            const sourceEl = document.getElementById(category + '-source');
+            if (statusEl) statusEl.value = '';
+            if (sourceEl) sourceEl.value = '';
             location.reload();
         }
         
         function downloadCSV(category) {
-            window.location.href = '/api/download/' + category;
+            const minScore = document.getElementById(category + '-score').value;
+            const status = document.getElementById(category + '-status')?.value || '';
+            const source = document.getElementById(category + '-source')?.value || '';
+            
+            const params = new URLSearchParams();
+            if (minScore) params.set('min_score', minScore);
+            if (status) params.set('status', status);
+            if (source) params.set('source', source);
+            
+            const queryString = params.toString();
+            window.location.href = '/api/download/' + category + (queryString ? '?' + queryString : '');
         }
         
         function updateTable(category, leads) {

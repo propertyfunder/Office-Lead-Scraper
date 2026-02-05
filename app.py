@@ -40,6 +40,14 @@ def get_stats(leads, category=None):
     with_website = sum(1 for l in leads if l.get('website'))
     enriched_complete = sum(1 for l in leads if l.get('enrichment_status') == 'complete')
     enriched_incomplete = sum(1 for l in leads if l.get('enrichment_status') == 'incomplete')
+    missing_email = sum(1 for l in leads if l.get('enrichment_status') == 'missing_email')
+    missing_name = sum(1 for l in leads if l.get('enrichment_status') == 'missing_name')
+    ai_enriched = sum(1 for l in leads if l.get('ai_enriched') == 'true')
+    
+    sources = {}
+    for l in leads:
+        source = l.get('enrichment_source', 'not_found') or 'not_found'
+        sources[source] = sources.get(source, 0) + 1
     
     avg_score = 0
     scored = [l for l in leads if l.get('ai_score')]
@@ -57,6 +65,10 @@ def get_stats(leads, category=None):
         'with_website': with_website,
         'enriched_complete': enriched_complete,
         'enriched_incomplete': enriched_incomplete,
+        'missing_email': missing_email,
+        'missing_name': missing_name,
+        'ai_enriched': ai_enriched,
+        'sources': sources,
         'avg_score': round(avg_score, 1)
     }
 
@@ -80,6 +92,8 @@ def api_leads():
     category = request.args.get('category')
     min_score = request.args.get('min_score')
     search = request.args.get('search', '').lower()
+    status_filter = request.args.get('status')
+    source_filter = request.args.get('source')
     
     if category:
         leads = [l for l in leads if l.get('category') == category]
@@ -90,6 +104,19 @@ def api_leads():
             leads = [l for l in leads if l.get('ai_score') and int(l['ai_score']) >= min_val]
         except:
             pass
+    
+    if status_filter:
+        if status_filter == 'incomplete':
+            leads = [l for l in leads if l.get('enrichment_status') != 'complete']
+        elif status_filter == 'complete':
+            leads = [l for l in leads if l.get('enrichment_status') == 'complete']
+        elif status_filter == 'missing_email':
+            leads = [l for l in leads if l.get('enrichment_status') == 'missing_email']
+        elif status_filter == 'missing_name':
+            leads = [l for l in leads if l.get('enrichment_status') == 'missing_name']
+    
+    if source_filter:
+        leads = [l for l in leads if l.get('enrichment_source') == source_filter]
     
     if search:
         leads = [l for l in leads if search in l.get('company_name', '').lower() 
@@ -102,6 +129,10 @@ def api_leads():
 def download_csv(category):
     leads = load_leads()
     
+    status_filter = request.args.get('status')
+    source_filter = request.args.get('source')
+    min_score = request.args.get('min_score')
+    
     if category == 'unit8':
         leads = [l for l in leads if l.get('category') == 'unit8']
         filename = 'unit8_leads.csv'
@@ -111,6 +142,32 @@ def download_csv(category):
     else:
         filename = 'all_leads.csv'
     
+    if status_filter:
+        if status_filter == 'incomplete':
+            leads = [l for l in leads if l.get('enrichment_status') != 'complete']
+            filename = f'{status_filter}_{filename}'
+        elif status_filter == 'complete':
+            leads = [l for l in leads if l.get('enrichment_status') == 'complete']
+            filename = f'{status_filter}_{filename}'
+        elif status_filter == 'missing_email':
+            leads = [l for l in leads if l.get('enrichment_status') == 'missing_email']
+            filename = f'{status_filter}_{filename}'
+        elif status_filter == 'missing_name':
+            leads = [l for l in leads if l.get('enrichment_status') == 'missing_name']
+            filename = f'{status_filter}_{filename}'
+    
+    if source_filter:
+        leads = [l for l in leads if l.get('enrichment_source') == source_filter]
+        filename = f'{source_filter}_{filename}'
+    
+    if min_score:
+        try:
+            min_val = int(min_score)
+            leads = [l for l in leads if l.get('ai_score') and int(l['ai_score']) >= min_val]
+            filename = f'score{min_val}plus_{filename}'
+        except:
+            pass
+    
     if not leads:
         return Response("No leads found", status=404)
     
@@ -118,7 +175,7 @@ def download_csv(category):
     fieldnames = ['company_name', 'sector', 'location', 'website', 'contact_name', 
                   'email', 'phone', 'linkedin', 'ai_score', 'ai_reason', 'tag', 
                   'google_rating', 'category', 'place_id', 'search_town', 
-                  'enrichment_source', 'enrichment_status']
+                  'enrichment_source', 'enrichment_status', 'ai_enriched']
     writer = csv.DictWriter(output, fieldnames=fieldnames, extrasaction='ignore')
     writer.writeheader()
     writer.writerows(leads)
