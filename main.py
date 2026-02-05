@@ -179,10 +179,44 @@ def load_leads_from_csv(filepath: str) -> List[BusinessLead]:
     
     return leads
 
+def dedupe_csv(filepath: str) -> int:
+    """Remove duplicate leads from CSV, keeping the most enriched version."""
+    if not os.path.exists(filepath):
+        print(f"File not found: {filepath}")
+        return 0
+    
+    leads = load_leads_from_csv(filepath)
+    original_count = len(leads)
+    
+    seen = {}
+    for lead in leads:
+        key = lead.company_name.lower().strip()
+        if key not in seen:
+            seen[key] = lead
+        else:
+            existing = seen[key]
+            existing_score = (1 if existing.email else 0) + (1 if existing.contact_name else 0)
+            new_score = (1 if lead.email else 0) + (1 if lead.contact_name else 0)
+            if new_score > existing_score:
+                seen[key] = lead
+    
+    unique_leads = list(seen.values())
+    removed = original_count - len(unique_leads)
+    
+    if removed > 0:
+        save_leads_to_csv(unique_leads, filepath, mode='w')
+        print(f"Removed {removed} duplicates ({original_count} -> {len(unique_leads)} leads)")
+    else:
+        print(f"No duplicates found in {len(unique_leads)} leads")
+    
+    return removed
+
 def run_batch_enrichment(filepath: str, verbose: bool = False, save_interval: int = 1):
     print(f"\n{'='*60}")
     print("BATCH ENRICHMENT MODE")
     print(f"{'='*60}")
+    
+    dedupe_csv(filepath)
     
     if not os.path.exists(filepath):
         print(f"Error: File not found: {filepath}")
