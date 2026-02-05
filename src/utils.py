@@ -83,10 +83,17 @@ def clean_email(email: str) -> str:
     if not email:
         return ""
     email = re.sub(r'<[^>]+>', '', email)
-    email = re.sub(r'\s*Contact.*$', '', email, flags=re.I)
-    email = re.sub(r'\s*Clinic.*$', '', email, flags=re.I)
-    email = re.sub(r'\.{2,}.*$', '', email)
     email = re.sub(r'[<>"\'\[\](){}]', '', email)
+    email_pattern = r'[a-zA-Z][a-zA-Z0-9._%+-]*@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+    match = re.search(email_pattern, email)
+    if match:
+        email = match.group(0)
+    else:
+        return ""
+    tld_pattern = r'(\.(com|co\.uk|org|net|uk|io|info|biz|me|health|therapy|yoga|clinic|dental|physio|care|education|studio))'
+    tld_match = re.search(tld_pattern, email, re.I)
+    if tld_match:
+        email = email[:tld_match.end()]
     email = email.strip().lower()
     if '@' in email and '.' in email.split('@')[-1]:
         return email

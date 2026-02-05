@@ -211,6 +211,35 @@
     </header>
     
     <div class="container">
+        <div class="stats-grid" style="margin-bottom: 30px;">
+            <div class="stat-card">
+                <div class="number">{{ total_stats.pct_complete }}%</div>
+                <div class="label">Complete</div>
+            </div>
+            <div class="stat-card">
+                <div class="number">{{ total_stats.email_guessed }}</div>
+                <div class="label">Guessed Emails</div>
+            </div>
+            <div class="stat-card">
+                <div class="number">{{ total_stats.contact_verified }}</div>
+                <div class="label">Verified Contacts</div>
+            </div>
+            <div class="stat-card">
+                <div class="number">{{ total_stats.ai_enriched }}</div>
+                <div class="label">AI Enriched</div>
+            </div>
+            <div class="stat-card">
+                <div class="number">${{ "%.2f"|format(openai_stats.cost) }}</div>
+                <div class="label">OpenAI Today</div>
+            </div>
+            <div class="stat-card">
+                <div class="number">{{ total_stats.total }}</div>
+                <div class="label">Total Leads</div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="container">
         <div class="tabs">
             <button class="tab-btn active" onclick="switchTab('unit8')">Unit 8 Occupiers ({{ unit8_stats.total }})</button>
             <button class="tab-btn" onclick="switchTab('office')">Office Occupiers ({{ office_stats.total }})</button>

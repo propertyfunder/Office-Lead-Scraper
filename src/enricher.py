@@ -149,7 +149,7 @@ class LeadEnricher:
                 website_text = text
                 if found_email and not lead.email:
                     lead.email = clean_email(found_email)
-                    lead.email_guessed = ""
+                    lead.email_guessed = "false"
                     if "website" not in sources_tried:
                         sources_tried.append("website")
                     print(f"    [Website] Found email: {lead.email}")
@@ -179,7 +179,7 @@ class LeadEnricher:
                     linkedin_contact = self._search_linkedin_for_contact(lead)
                     if linkedin_contact and self._is_valid_contact_name(linkedin_contact):
                         lead.contact_name = normalize_name(linkedin_contact)
-                        lead.contact_verified = "true"
+                        lead.contact_verified = "false"
                         sources_tried.append("linkedin")
                         print(f"    [LinkedIn] Found contact: {lead.contact_name}")
                         
