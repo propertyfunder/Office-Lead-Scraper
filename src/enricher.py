@@ -8,7 +8,7 @@ from bs4 import BeautifulSoup
 import requests
 
 from .models import BusinessLead
-from .utils import make_request, rate_limit, extract_email_from_text, guess_email, extract_domain, clean_text, log_verbose, get_headers, clean_email, normalize_name, log_failed_url
+from .utils import make_request, rate_limit, extract_email_from_text, guess_email, generate_email_guesses, extract_domain, clean_text, log_verbose, get_headers, clean_email, normalize_name, log_failed_url
 
 DAILY_OPENAI_COST_LIMIT = 2.00
 COST_PER_1K_TOKENS = 0.00015  # gpt-4o-mini pricing
@@ -134,7 +134,17 @@ class LeadEnricher:
         self.companies_house_api_key = os.environ.get("COMPANIES_HOUSE_API_KEY", "")
         self.ch_base_url = "https://api.company-information.service.gov.uk"
         self.generic_email_prefixes = ['info', 'contact', 'enquiries', 'hello', 'admin', 'reception', 'office', 'mail', 'enquiry', 'general', 'support', 'help', 'sales']
-        self.nav_keywords = ['about', 'team', 'contact', 'people', 'staff', 'who', 'meet', 'practice', 'practitioner', 'therapist', 'our-', 'the-', 'book', 'booking', 'appointment']
+        self.nav_keywords = ['about', 'team', 'contact', 'people', 'staff', 'who', 'meet',
+                              'practice', 'practitioner', 'therapist', 'our-', 'the-',
+                              'book', 'booking', 'appointment', 'clinician', 'doctor',
+                              'leadership', 'consultant', 'specialist', 'coach',
+                              'instructor', 'director']
+        self.team_page_keywords = [
+            'team', 'our team', 'meet the team', 'clinicians', 'practitioners',
+            'about us', 'leadership', 'doctors', 'therapists', 'consultants',
+            'staff', 'directors', 'specialists', 'coaches', 'instructors',
+            'our people', 'our experts', 'meet us', 'who we are', 'the team'
+        ]
         
         self.sector_categories = [
             'Physiotherapy', 'Mental Health', 'Massage Therapy', 'Chiropractic',
@@ -175,8 +185,15 @@ class LeadEnricher:
         self.social_media_domains = ['facebook.com', 'fb.com', 'instagram.com', 'twitter.com',
                                       'tiktok.com', 'linkedin.com', 'youtube.com']
     
+    def _is_fully_enriched(self, lead: BusinessLead) -> bool:
+        has_primary = bool(lead.contact_name and lead.email)
+        has_contacts = bool(lead.contact_names)
+        has_generic = bool(lead.generic_email)
+        has_guesses = bool(lead.personal_email_guesses)
+        return has_primary and has_contacts and (has_generic or has_guesses)
+    
     def enrich(self, lead: BusinessLead, skip_if_complete: bool = True) -> BusinessLead:
-        if skip_if_complete and lead.contact_name and lead.email:
+        if skip_if_complete and self._is_fully_enriched(lead):
             lead.enrichment_status = "complete"
             return lead
         
@@ -207,6 +224,13 @@ class LeadEnricher:
                             lead.email_guessed = "true"
                             lead.enrichment_source = "companies_house"
                             print(f"    [Guessed] Email: {lead.email}")
+                    if lead.website and _is_empty(lead.contact_names):
+                        lead.contact_names = lead.contact_name
+                        lead.multiple_contacts = "FALSE"
+                        domain = extract_domain(lead.website)
+                        if domain:
+                            guesses = generate_email_guesses(lead.contact_name, domain)
+                            lead.personal_email_guesses = "; ".join(guesses)
                 else:
                     print(f"    [Companies House] No director found")
             elif not self.companies_house_api_key:
@@ -227,8 +251,19 @@ class LeadEnricher:
                 log_failed_url(lead.website, lead.company_name, "Social media URL - cannot scrape")
             elif lead.website and 'find-and-update.company-information' not in lead.website:
                 print(f"    [Website] Checking {lead.website[:50]}...")
-                found_email, found_contact, source, text = self._enrich_from_website(lead)
-                website_text = text
+                web_result = self._enrich_from_website(lead)
+                found_email = web_result['email']
+                found_contact = web_result['contact']
+                website_text = web_result['text']
+                web_contacts = web_result['contacts']
+                web_generic_email = web_result['generic_email']
+                known_format = web_result['known_email_format']
+                
+                if web_generic_email and _is_empty(lead.generic_email):
+                    lead.generic_email = clean_email(web_generic_email)
+                    if lead.generic_email:
+                        print(f"    [Website] Generic email: {lead.generic_email}")
+                
                 if found_email and _is_empty(lead.email):
                     lead.email = clean_email(found_email)
                     lead.email_guessed = "false"
@@ -250,7 +285,43 @@ class LeadEnricher:
                             lead.email = clean_email(guessed)
                             lead.email_guessed = "true"
                             print(f"    [Guessed] Email: {lead.email}")
-                if not found_email and not found_contact:
+                
+                if web_contacts:
+                    domain = extract_domain(lead.website)
+                    contact_names_list = []
+                    contact_titles_list = []
+                    all_email_guesses = []
+                    
+                    for c in web_contacts[:3]:
+                        contact_names_list.append(c['name'])
+                        contact_titles_list.append(c.get('title', ''))
+                        if domain:
+                            guesses = generate_email_guesses(c['name'], domain, known_format)
+                            all_email_guesses.extend(guesses)
+                    
+                    lead.contact_names = "; ".join(contact_names_list)
+                    lead.contact_titles = "; ".join(contact_titles_list)
+                    lead.multiple_contacts = "TRUE" if len(contact_names_list) > 1 else "FALSE"
+                    
+                    seen_guesses = []
+                    for g in all_email_guesses:
+                        if g not in seen_guesses:
+                            seen_guesses.append(g)
+                    lead.personal_email_guesses = "; ".join(seen_guesses)
+                    
+                    if contact_names_list:
+                        print(f"    [Website] Found {len(contact_names_list)} contacts: {', '.join(contact_names_list)}")
+                    if seen_guesses:
+                        print(f"    [Website] Generated {len(seen_guesses)} email guesses")
+                elif lead.contact_name and _is_empty(lead.contact_names):
+                    lead.contact_names = lead.contact_name
+                    lead.multiple_contacts = "FALSE"
+                    domain = extract_domain(lead.website) if lead.website else ""
+                    if domain:
+                        guesses = generate_email_guesses(lead.contact_name, domain)
+                        lead.personal_email_guesses = "; ".join(guesses)
+                
+                if not found_email and not found_contact and not web_contacts:
                     print(f"    [Website] No contact/email found")
                     log_failed_url(lead.website, lead.company_name, "No email or contact found on website")
             elif not lead.website:
@@ -281,6 +352,13 @@ class LeadEnricher:
                                 lead.email = clean_email(guessed)
                                 lead.email_guessed = "true"
                                 print(f"    [Guessed] Email: {lead.email}")
+                        if lead.website and _is_empty(lead.contact_names):
+                            lead.contact_names = lead.contact_name
+                            lead.multiple_contacts = "FALSE"
+                            domain = extract_domain(lead.website)
+                            if domain:
+                                guesses = generate_email_guesses(lead.contact_name, domain)
+                                lead.personal_email_guesses = "; ".join(guesses)
             
             if self._is_complete(lead):
                 lead.enrichment_source = sources_tried[0] if sources_tried else "linkedin"
@@ -399,13 +477,24 @@ class LeadEnricher:
         domain = email.split('@')[-1].lower() if '@' in email else ''
         return domain in personal_domains
     
-    def _enrich_from_website(self, lead: BusinessLead) -> Tuple[str, str, str, str]:
+    def _enrich_from_website(self, lead: BusinessLead) -> dict:
+        result = {
+            'email': '',
+            'generic_email': '',
+            'contact': '',
+            'contacts': [],
+            'source': '',
+            'text': '',
+            'known_email_format': ''
+        }
         personal_email = ""
         generic_email = ""
         personal_domain_email = ""
         contact = ""
         source = ""
         all_text = ""
+        all_contacts = []
+        all_emails_found = []
         
         homepage_soup = None
         homepage_text = ""
@@ -421,6 +510,7 @@ class LeadEnricher:
                 
                 found = self._find_email(homepage_soup, homepage_text)
                 if found:
+                    all_emails_found.append(found)
                     if self._is_personal_email(found):
                         personal_domain_email = found
                     elif self._is_generic_email(found):
@@ -433,6 +523,10 @@ class LeadEnricher:
                 if found:
                     contact = found
                     source = "website"
+                
+                multi = self._find_multiple_contacts(homepage_soup)
+                if multi:
+                    all_contacts.extend(multi)
                 
                 if not lead.linkedin:
                     lead.linkedin = self._find_linkedin(homepage_soup)
@@ -448,9 +542,6 @@ class LeadEnricher:
             log_verbose(f"Error checking homepage {lead.website}: {e}")
             log_failed_url(lead.website, lead.company_name, f"Exception: {str(e)[:100]}")
         
-        if personal_email and contact:
-            return personal_email, contact, source, all_text
-        
         parsed_url = urlparse(final_url)
         root_url = f"{parsed_url.scheme}://{parsed_url.netloc}/"
         discovered_pages = self._discover_nav_pages(homepage_soup, root_url) if homepage_soup else []
@@ -463,9 +554,6 @@ class LeadEnricher:
             print(f"      No subpages discovered (soup={has_soup}, navs={nav_count})")
         
         for page_url in discovered_pages[:6]:
-            if personal_email and contact:
-                break
-            
             try:
                 rate_limit(0.2, 0.5)
                 response = make_request(page_url)
@@ -480,6 +568,7 @@ class LeadEnricher:
                     found = self._find_email(soup, page_text)
                     if found:
                         log_verbose(f"Subpage email found: {found}")
+                        all_emails_found.append(found)
                         if self._is_personal_email(found):
                             if not personal_domain_email:
                                 personal_domain_email = found
@@ -497,6 +586,12 @@ class LeadEnricher:
                         contact = found
                         source = "website"
                 
+                if len(all_contacts) < 3:
+                    multi = self._find_multiple_contacts(soup)
+                    for c in multi:
+                        if c['name'].lower() not in {x['name'].lower() for x in all_contacts}:
+                            all_contacts.append(c)
+                
                 if not lead.linkedin:
                     lead.linkedin = self._find_linkedin(soup)
                 
@@ -504,8 +599,28 @@ class LeadEnricher:
                 log_verbose(f"Error checking {page_url}: {e}")
                 continue
         
-        final_email = personal_email or personal_domain_email or generic_email
-        return final_email, contact, source, all_text[:5000]
+        if contact and contact.lower() not in {c['name'].lower() for c in all_contacts}:
+            all_contacts.insert(0, {'name': normalize_name(contact), 'title': ''})
+        
+        known_format = ""
+        domain = extract_domain(lead.website)
+        if domain:
+            for e in all_emails_found:
+                if '@' in e and not self._is_generic_email(e) and not self._is_personal_email(e):
+                    email_domain = e.split('@')[1].lower()
+                    norm_domain = domain.replace('www.', '').lower()
+                    if email_domain == norm_domain:
+                        known_format = e.lower()
+                        break
+        
+        result['email'] = personal_email or personal_domain_email or generic_email
+        result['generic_email'] = generic_email
+        result['contact'] = contact
+        result['contacts'] = all_contacts[:3]
+        result['source'] = source
+        result['text'] = all_text[:5000]
+        result['known_email_format'] = known_format
+        return result
     
     def _normalize_domain(self, domain: str) -> str:
         if domain.startswith('www.'):
@@ -681,6 +796,125 @@ class LeadEnricher:
                     return potential
         
         return ""
+    
+    def _find_multiple_contacts(self, soup: BeautifulSoup, max_contacts: int = 3) -> List[dict]:
+        contacts = []
+        seen_names = set()
+        
+        role_patterns = [
+            r'(?:founder|co-founder|owner|director|managing director|ceo|principal|proprietor|partner)',
+            r'(?:clinical director|practice owner|lead therapist|head therapist|senior therapist)',
+            r'(?:physiotherapist|osteopath|chiropractor|therapist|practitioner|clinician)',
+            r'(?:consultant|specialist|coach|instructor|doctor|dentist|dr\.?)',
+            r'(?:pilates instructor|yoga teacher|massage therapist|psychotherapist|counsellor)',
+            r'(?:nutritionist|dietitian|acupuncturist|reflexologist|homeopath)',
+        ]
+        combined_role_pattern = '|'.join(role_patterns)
+        
+        team_sections = soup.find_all(['section', 'div', 'article', 'main'],
+            class_=re.compile(r'team|staff|people|about|bio|profile|clinician|practitioner|therapist|expert|member|leadership|instructor|coach|specialist|doctor', re.I))
+        
+        if not team_sections:
+            team_sections = []
+            for heading in soup.find_all(['h1', 'h2', 'h3']):
+                text = heading.get_text().lower()
+                if any(kw in text for kw in self.team_page_keywords):
+                    parent = heading.parent
+                    if parent:
+                        team_sections.append(parent)
+        
+        if not team_sections:
+            team_sections = [soup]
+        
+        for section in team_sections:
+            name_elements = section.find_all(['h2', 'h3', 'h4', 'h5', 'strong', 'b'])
+            for elem in name_elements:
+                if len(contacts) >= max_contacts:
+                    break
+                name_text = clean_text(elem.get_text())
+                if not self._looks_like_name(name_text):
+                    continue
+                name_lower = name_text.lower()
+                if name_lower in seen_names:
+                    continue
+                if not self._is_valid_contact_name(name_text):
+                    continue
+                
+                title = ""
+                parent = elem.parent
+                if parent:
+                    siblings = parent.find_all(['p', 'span', 'div', 'em', 'small', 'h4', 'h5', 'h6'])
+                    for sib in siblings:
+                        sib_text = clean_text(sib.get_text())
+                        if sib_text and sib_text != name_text and len(sib_text) < 100:
+                            if re.search(combined_role_pattern, sib_text, re.I):
+                                title = sib_text[:80]
+                                break
+                
+                if not title:
+                    next_elem = elem.find_next(['p', 'span', 'div', 'em', 'small'])
+                    if next_elem:
+                        next_text = clean_text(next_elem.get_text())
+                        if next_text and len(next_text) < 100:
+                            if re.search(combined_role_pattern, next_text, re.I):
+                                title = next_text[:80]
+                
+                seen_names.add(name_lower)
+                contacts.append({
+                    'name': normalize_name(name_text),
+                    'title': title
+                })
+            
+            if len(contacts) >= max_contacts:
+                break
+        
+        if len(contacts) < max_contacts:
+            schema_scripts = soup.find_all('script', type='application/ld+json')
+            for script in schema_scripts:
+                if len(contacts) >= max_contacts:
+                    break
+                try:
+                    data = json.loads(script.string or "")
+                    items = []
+                    if isinstance(data, dict):
+                        items.append(data)
+                        if '@graph' in data:
+                            items.extend(data['@graph'] if isinstance(data['@graph'], list) else [data['@graph']])
+                    elif isinstance(data, list):
+                        items.extend(data)
+                    
+                    for item in items:
+                        if not isinstance(item, dict):
+                            continue
+                        for field in ['employee', 'member', 'founder', 'author']:
+                            people = item.get(field, [])
+                            if isinstance(people, dict):
+                                people = [people]
+                            if not isinstance(people, list):
+                                continue
+                            for person in people:
+                                if len(contacts) >= max_contacts:
+                                    break
+                                if not isinstance(person, dict):
+                                    continue
+                                name = person.get('name', '')
+                                if name and self._looks_like_name(name) and name.lower() not in seen_names and self._is_valid_contact_name(name):
+                                    title = person.get('jobTitle', '') or person.get('roleName', '')
+                                    seen_names.add(name.lower())
+                                    contacts.append({
+                                        'name': normalize_name(name),
+                                        'title': str(title)[:80] if title else ''
+                                    })
+                except (json.JSONDecodeError, TypeError, AttributeError):
+                    pass
+        
+        return contacts[:max_contacts]
+    
+    def _detect_email_format(self, known_email: str, domain: str) -> str:
+        if not known_email or not domain or '@' not in known_email:
+            return ""
+        local_part = known_email.split('@')[0].lower()
+        return known_email.lower()
     
     def _extract_names_from_page_text(self, text: str) -> List[str]:
         names = []
@@ -1098,7 +1332,7 @@ def batch_enrich_leads(leads: List[BusinessLead], skip_complete: bool = True, fi
     
     needs_enrichment = []
     for lead in leads:
-        if skip_complete and lead.contact_name and lead.email:
+        if skip_complete and enricher._is_fully_enriched(lead):
             stats["skipped"] += 1
             lead.enrichment_status = "complete"
         else:

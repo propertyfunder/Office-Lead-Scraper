@@ -209,6 +209,13 @@ All leads are classified into exactly one category:
 - General Wellness
 
 ## Recent Changes
+- 2026-02-06: **Multi-contact extraction** - Finds up to 3 named individuals with titles from team/staff pages
+- 2026-02-06: **Multi-format email guessing** - Generates 8 email variations per contact (firstname.lastname@, f.lastname@, etc.)
+- 2026-02-06: **Generic email separation** - info@/contact@/hello@ emails stored in separate generic_email field
+- 2026-02-06: **New CSV columns** - generic_email, contact_names, personal_email_guesses, contact_titles, multiple_contacts
+- 2026-02-06: **Smart skip logic** - _is_fully_enriched() checks primary contact, contacts list, and email coverage
+- 2026-02-06: **Enhanced dashboard** - Contact(s) and Email(s) columns show multi-contact data, guessed emails, and generic emails
+- 2026-02-06: **Email guesses from all sources** - CH and LinkedIn contacts also generate personal email guesses
 - 2026-02-05: **Sector normalization** - Classifies businesses into exactly 9 categories (Physiotherapy, Mental Health, etc.)
 - 2026-02-05: **Enhanced website crawl** - Deep mode visits Contact, About, Team, Staff, Book pages
 - 2026-02-05: **Improved owner extraction** - Looks for "Lead Therapist", "Meet the Team", "About Me" phrases

@@ -215,8 +215,10 @@ def download_csv(category):
         return Response("No leads found", status=404)
     
     output = io.StringIO()
-    fieldnames = ['company_name', 'sector', 'location', 'website', 'contact_name', 
-                  'email', 'phone', 'linkedin', 'ai_score', 'ai_reason', 'tag', 
+    fieldnames = ['company_name', 'sector', 'location', 'website', 'contact_name',
+                  'contact_names', 'generic_email', 'email', 'personal_email_guesses',
+                  'contact_titles', 'multiple_contacts',
+                  'phone', 'linkedin', 'ai_score', 'ai_reason', 'tag', 
                   'google_rating', 'category', 'place_id', 'search_town', 
                   'enrichment_source', 'enrichment_status', 'ai_enriched', 
                   'email_guessed', 'contact_verified']

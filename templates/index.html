@@ -312,8 +312,8 @@
                             <th>Category</th>
                             <th>Location</th>
                             <th>Website</th>
-                            <th>Contact</th>
-                            <th>Email</th>
+                            <th>Contact(s)</th>
+                            <th>Email(s)</th>
                             <th>Score</th>
                         </tr>
                     </thead>
@@ -326,8 +326,19 @@
                             <td class="contact-info">
                                 {% if lead.website %}<a href="{{ lead.website }}" target="_blank">{{ lead.website[:35] }}{% if lead.website|length > 35 %}...{% endif %}</a>{% else %}-{% endif %}
                             </td>
-                            <td>{{ lead.contact_name or '-' }}</td>
-                            <td class="contact-info">{{ lead.email or '-' }}</td>
+                            <td>
+                                {{ lead.contact_name or '-' }}
+                                {% if lead.contact_titles %}<br><span class="contact-info">{{ lead.contact_titles }}</span>{% endif %}
+                                {% if lead.multiple_contacts == 'TRUE' and lead.contact_names %}
+                                <br><span class="contact-info" style="color:#6366f1;" title="{{ lead.contact_names }}">+{{ lead.contact_names.split(';')|length - 1 }} more</span>
+                                {% endif %}
+                            </td>
+                            <td class="contact-info">
+                                {% if lead.email %}{{ lead.email }}{% if lead.email_guessed == 'true' %} <span style="color:#f59e0b;" title="Guessed format">(g)</span>{% endif %}{% endif %}
+                                {% if lead.generic_email %}<br><span style="color:#94a3b8;">{{ lead.generic_email }}</span>{% endif %}
+                                {% if lead.personal_email_guesses %}<br><span style="color:#6366f1;cursor:pointer;" title="{{ lead.personal_email_guesses }}">{{ lead.personal_email_guesses.split(';')|length }} guesses</span>{% endif %}
+                                {% if not lead.email and not lead.generic_email and not lead.personal_email_guesses %}-{% endif %}
+                            </td>
                             <td>
                                 {% if lead.ai_score %}
                                 <span class="score {% if lead.ai_score|int >= 8 %}score-high{% elif lead.ai_score|int >= 5 %}score-medium{% else %}score-low{% endif %}">{{ lead.ai_score }}</span>
@@ -413,8 +424,8 @@
                             <th>Category</th>
                             <th>Location</th>
                             <th>Website</th>
-                            <th>Contact</th>
-                            <th>Email</th>
+                            <th>Contact(s)</th>
+                            <th>Email(s)</th>
                             <th>Score</th>
                         </tr>
                     </thead>
@@ -427,8 +438,19 @@
                             <td class="contact-info">
                                 {% if lead.website %}<a href="{{ lead.website }}" target="_blank">{{ lead.website[:35] }}{% if lead.website|length > 35 %}...{% endif %}</a>{% else %}-{% endif %}
                             </td>
-                            <td>{{ lead.contact_name or '-' }}</td>
-                            <td class="contact-info">{{ lead.email or '-' }}</td>
+                            <td>
+                                {{ lead.contact_name or '-' }}
+                                {% if lead.contact_titles %}<br><span class="contact-info">{{ lead.contact_titles }}</span>{% endif %}
+                                {% if lead.multiple_contacts == 'TRUE' and lead.contact_names %}
+                                <br><span class="contact-info" style="color:#6366f1;" title="{{ lead.contact_names }}">+{{ lead.contact_names.split(';')|length - 1 }} more</span>
+                                {% endif %}
+                            </td>
+                            <td class="contact-info">
+                                {% if lead.email %}{{ lead.email }}{% if lead.email_guessed == 'true' %} <span style="color:#f59e0b;" title="Guessed format">(g)</span>{% endif %}{% endif %}
+                                {% if lead.generic_email %}<br><span style="color:#94a3b8;">{{ lead.generic_email }}</span>{% endif %}
+                                {% if lead.personal_email_guesses %}<br><span style="color:#6366f1;cursor:pointer;" title="{{ lead.personal_email_guesses }}">{{ lead.personal_email_guesses.split(';')|length }} guesses</span>{% endif %}
+                                {% if not lead.email and not lead.generic_email and not lead.personal_email_guesses %}-{% endif %}
+                            </td>
                             <td>
                                 {% if lead.ai_score %}
                                 <span class="score {% if lead.ai_score|int >= 8 %}score-high{% elif lead.ai_score|int >= 5 %}score-medium{% else %}score-low{% endif %}">{{ lead.ai_score }}</span>
@@ -508,7 +530,22 @@
                 return;
             }
             
-            tbody.innerHTML = leads.map(lead => `
+            tbody.innerHTML = leads.map(lead => {
+                let contactHtml = lead.contact_name || '-';
+                if (lead.contact_titles) contactHtml += `<br><span class="contact-info">${lead.contact_titles}</span>`;
+                if (lead.multiple_contacts === 'TRUE' && lead.contact_names) {
+                    const extra = lead.contact_names.split(';').length - 1;
+                    if (extra > 0) contactHtml += `<br><span class="contact-info" style="color:#6366f1;" title="${lead.contact_names}">+${extra} more</span>`;
+                }
+                let emailHtml = '';
+                if (lead.email) emailHtml += lead.email + (lead.email_guessed === 'true' ? ' <span style="color:#f59e0b;" title="Guessed format">(g)</span>' : '');
+                if (lead.generic_email) emailHtml += `<br><span style="color:#94a3b8;">${lead.generic_email}</span>`;
+                if (lead.personal_email_guesses) {
+                    const count = lead.personal_email_guesses.split(';').length;
+                    emailHtml += `<br><span style="color:#6366f1;cursor:pointer;" title="${lead.personal_email_guesses}">${count} guesses</span>`;
+                }
+                if (!emailHtml) emailHtml = '-';
+                return `
                 <tr>
                     <td class="company-name">${lead.company_name || ''}</td>
                     <td>${lead.sector || '-'}</td>
@@ -516,13 +553,13 @@
                     <td class="contact-info">
                         ${lead.website ? `<a href="${lead.website}" target="_blank">${lead.website.substring(0,35)}${lead.website.length > 35 ? '...' : ''}</a>` : '-'}
                     </td>
-                    <td>${lead.contact_name || '-'}</td>
-                    <td class="contact-info">${lead.email || '-'}</td>
+                    <td>${contactHtml}</td>
+                    <td class="contact-info">${emailHtml}</td>
                     <td>
                         ${lead.ai_score ? `<span class="score ${parseInt(lead.ai_score) >= 8 ? 'score-high' : parseInt(lead.ai_score) >= 5 ? 'score-medium' : 'score-low'}">${lead.ai_score}</span>` : '-'}
                     </td>
-                </tr>
-            `).join('');
+                </tr>`;
+            }).join('');
         }
         
         ['unit8', 'office'].forEach(cat => {
