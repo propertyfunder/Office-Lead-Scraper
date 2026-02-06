@@ -135,15 +135,21 @@ class LeadEnricher:
         self.ch_base_url = "https://api.company-information.service.gov.uk"
         self.generic_email_prefixes = ['info', 'contact', 'enquiries', 'hello', 'admin', 'reception', 'office', 'mail', 'enquiry', 'general', 'support', 'help', 'sales']
         self.nav_keywords = ['about', 'team', 'contact', 'people', 'staff', 'who', 'meet',
+                              'meet-the-team', 'meet_the_team', 'meettheteam',
+                              'our-team', 'our_team', 'the-team', 'the_team',
                               'practice', 'practitioner', 'therapist', 'our-', 'the-',
                               'book', 'booking', 'appointment', 'clinician', 'doctor',
                               'leadership', 'consultant', 'specialist', 'coach',
-                              'instructor', 'director']
+                              'instructor', 'director', 'associates', 'partners',
+                              'our-people', 'our_people', 'who-we-are', 'who_we_are']
         self.team_page_keywords = [
-            'team', 'our team', 'meet the team', 'clinicians', 'practitioners',
+            'team', 'our team', 'meet the team', 'meet our team',
+            'clinicians', 'practitioners',
             'about us', 'leadership', 'doctors', 'therapists', 'consultants',
             'staff', 'directors', 'specialists', 'coaches', 'instructors',
-            'our people', 'our experts', 'meet us', 'who we are', 'the team'
+            'our people', 'our experts', 'meet us', 'who we are', 'the team',
+            'our associates', 'our partners', 'our practitioners',
+            'our clinicians', 'our therapists', 'our consultants'
         ]
         
         self.sector_categories = [
