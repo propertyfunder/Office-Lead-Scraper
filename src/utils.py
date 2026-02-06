@@ -55,10 +55,17 @@ def clean_text(text: str) -> str:
 def extract_email_from_text(text: str) -> str:
     if not text:
         return ""
-    email_pattern = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
-    matches = re.findall(email_pattern, text)
+    tld_list = r'(?:com|co\.uk|org\.uk|nhs\.net|nhs\.uk|ac\.uk|gov\.uk|org|net|uk|io|info|biz|me|health|therapy|yoga|clinic|dental|physio|care|education|studio|space|pro|solutions|services|tech|online|live|cloud|app|dev|design|consulting|london|wales|scot)'
+    email_pattern = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.' + tld_list + r'(?=[^a-zA-Z.]|$)'
+    matches = re.findall(email_pattern, text, re.I)
+    if not matches:
+        fallback_pattern = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,4}(?=[^a-zA-Z]|$)'
+        matches = re.findall(fallback_pattern, text)
+    junk = ['example.com', 'test.com', 'domain.com', '.png', '.jpg', '.gif',
+            'sentry', 'wixpress', 'godaddy', 'squarespace', 'wordpress',
+            'mailchimp', 'googleapis', 'gstatic', 'cloudflare']
     for email in matches:
-        if not any(x in email.lower() for x in ['example.com', 'test.com', 'domain.com', '.png', '.jpg', '.gif']):
+        if not any(x in email.lower() for x in junk):
             return email
     return ""
 
@@ -84,16 +91,20 @@ def clean_email(email: str) -> str:
         return ""
     email = re.sub(r'<[^>]+>', '', email)
     email = re.sub(r'[<>"\'\[\](){}]', '', email)
-    email_pattern = r'[a-zA-Z][a-zA-Z0-9._%+-]*@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+    email_pattern = r'[a-zA-Z][a-zA-Z0-9._%+-]*@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,7}\b'
     match = re.search(email_pattern, email)
     if match:
         email = match.group(0)
     else:
         return ""
-    tld_pattern = r'(\.(com|co\.uk|org|net|uk|io|info|biz|me|health|therapy|yoga|clinic|dental|physio|care|education|studio))'
+    tld_pattern = r'(\.(com|co\.uk|org|org\.uk|net|uk|io|info|biz|me|health|therapy|yoga|clinic|dental|physio|care|education|studio|space|nhs\.net|nhs\.uk|ac\.uk|gov\.uk))'
     tld_match = re.search(tld_pattern, email, re.I)
     if tld_match:
         email = email[:tld_match.end()]
+    junk = ['sentry', 'wixpress', 'godaddy', 'squarespace', 'wordpress',
+            'mailchimp', 'googleapis', 'gstatic', 'cloudflare', 'filler@']
+    if any(x in email.lower() for x in junk):
+        return ""
     email = email.strip().lower()
     if '@' in email and '.' in email.split('@')[-1]:
         return email
@@ -231,6 +242,15 @@ def detect_block_or_captcha(response: requests.Response) -> Tuple[bool, str]:
     
     return False, ""
 
+FAILED_URLS_LOG = "failed_urls.log"
+
+def log_failed_url(url: str, company_name: str, reason: str):
+    try:
+        with open(FAILED_URLS_LOG, 'a', encoding='utf-8') as f:
+            f.write(f"{company_name}\t{url}\t{reason}\n")
+    except:
+        pass
+
 def make_request_with_retry(
     url: str, 
     max_retries: int = 3, 
@@ -245,7 +265,16 @@ def make_request_with_retry(
             log_verbose(f"Request attempt {attempt + 1}/{max_retries}: {url[:80]}...")
             
             headers = get_headers(referer)
-            response = requests.get(url, headers=headers, timeout=timeout)
+            if attempt > 0:
+                headers["User-Agent"] = ua.random
+            if attempt >= 1:
+                from urllib.parse import urlparse
+                parsed = urlparse(url)
+                headers["Referer"] = f"{parsed.scheme}://{parsed.netloc}/"
+                headers["Sec-Fetch-Site"] = "same-origin"
+            
+            session = requests.Session()
+            response = session.get(url, headers=headers, timeout=timeout, allow_redirects=True)
             
             if response.status_code == 200:
                 is_blocked, block_reason = detect_block_or_captcha(response)

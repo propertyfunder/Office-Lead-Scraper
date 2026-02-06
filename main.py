@@ -218,6 +218,9 @@ def run_batch_enrichment(filepath: str, verbose: bool = False, save_interval: in
     
     dedupe_csv(filepath)
     
+    if os.path.exists("failed_urls.log"):
+        os.remove("failed_urls.log")
+    
     if not os.path.exists(filepath):
         print(f"Error: File not found: {filepath}")
         return

@@ -8,7 +8,7 @@ from bs4 import BeautifulSoup
 import requests
 
 from .models import BusinessLead
-from .utils import make_request, rate_limit, extract_email_from_text, guess_email, extract_domain, clean_text, log_verbose, get_headers, clean_email, normalize_name
+from .utils import make_request, rate_limit, extract_email_from_text, guess_email, extract_domain, clean_text, log_verbose, get_headers, clean_email, normalize_name, log_failed_url
 
 DAILY_OPENAI_COST_LIMIT = 2.00
 COST_PER_1K_TOKENS = 0.00015  # gpt-4o-mini pricing
@@ -161,7 +161,19 @@ class LeadEnricher:
         
         self.invalid_names = {'new title', 'title', 'untitled', 'unknown', 'n/a', 'na', 
                               'none', 'test', 'admin', 'contact', 'info', 'owner', 'director',
-                              'manager', 'team', 'staff', 'enquiries', 'hello', 'general'}
+                              'manager', 'team', 'staff', 'enquiries', 'hello', 'general',
+                              'massage', 'therapy', 'clinic', 'practice', 'studio', 'centre',
+                              'center', 'dental', 'yoga', 'pilates', 'health', 'wellness',
+                              'the', 'and', 'for', 'your'}
+        self.invalid_name_phrases = [
+            'counselling', 'hypnotherapy', 'physiotherapy', 'osteopathy', 'chiropractic',
+            'therapy', 'clinic', 'practice', 'studio', 'dental', 'yoga', 'pilates',
+            'massage', 'acupuncture', 'reflexology', 'wellness', 'fitness',
+            'gardens', 'oxfordshire', 'surrey', 'hampshire', 'berkshire', 'sussex',
+            'london', 'guildford', 'farnham', 'godalming', 'woking', 'stafford'
+        ]
+        self.social_media_domains = ['facebook.com', 'fb.com', 'instagram.com', 'twitter.com',
+                                      'tiktok.com', 'linkedin.com', 'youtube.com']
     
     def enrich(self, lead: BusinessLead, skip_if_complete: bool = True) -> BusinessLead:
         if skip_if_complete and lead.contact_name and lead.email:
@@ -208,7 +220,12 @@ class LeadEnricher:
                 return lead
             
             website_attempted = True
-            if lead.website and 'find-and-update.company-information' not in lead.website:
+            is_social = lead.website and any(d in lead.website.lower() for d in self.social_media_domains)
+            if is_social:
+                print(f"    [Website] Social media URL: {lead.website[:50]} - flagged for manual review")
+                lead.tag = (lead.tag + ",facebook-only" if lead.tag else "facebook-only") if 'facebook' in lead.website.lower() or 'fb.com' in lead.website.lower() else lead.tag
+                log_failed_url(lead.website, lead.company_name, "Social media URL - cannot scrape")
+            elif lead.website and 'find-and-update.company-information' not in lead.website:
                 print(f"    [Website] Checking {lead.website[:50]}...")
                 found_email, found_contact, source, text = self._enrich_from_website(lead)
                 website_text = text
@@ -217,7 +234,8 @@ class LeadEnricher:
                     lead.email_guessed = "false"
                     if "website" not in sources_tried:
                         sources_tried.append("website")
-                    print(f"    [Website] Found email: {lead.email}")
+                    if lead.email:
+                        print(f"    [Website] Found email: {lead.email}")
                 if found_contact and self._is_valid_contact_name(found_contact) and _is_empty(lead.contact_name):
                     lead.contact_name = normalize_name(found_contact)
                     lead.contact_verified = "true"
@@ -234,6 +252,7 @@ class LeadEnricher:
                             print(f"    [Guessed] Email: {lead.email}")
                 if not found_email and not found_contact:
                     print(f"    [Website] No contact/email found")
+                    log_failed_url(lead.website, lead.company_name, "No email or contact found on website")
             elif not lead.website:
                 print(f"    [Website] Skipped - no website URL")
             
@@ -359,6 +378,12 @@ class LeadEnricher:
             return False
         if any(word in self.invalid_names for word in words):
             return False
+        if any(phrase in name_lower for phrase in self.invalid_name_phrases):
+            return False
+        if words[0] == words[1]:
+            return False
+        if any(c.isdigit() for c in name):
+            return False
         return True
     
     def _is_generic_email(self, email: str) -> bool:
@@ -391,7 +416,7 @@ class LeadEnricher:
             if response:
                 final_url = response.url
                 homepage_soup = BeautifulSoup(response.text, 'lxml')
-                homepage_text = homepage_soup.get_text()
+                homepage_text = homepage_soup.get_text(separator=' ')
                 all_text = homepage_text
                 
                 found = self._find_email(homepage_soup, homepage_text)
@@ -417,8 +442,11 @@ class LeadEnricher:
                 
                 if not lead.sector or lead.sector not in self.sector_categories:
                     lead.sector = self._extract_sector(homepage_soup, homepage_text)
+            else:
+                log_failed_url(lead.website, lead.company_name, "Homepage request failed")
         except Exception as e:
             log_verbose(f"Error checking homepage {lead.website}: {e}")
+            log_failed_url(lead.website, lead.company_name, f"Exception: {str(e)[:100]}")
         
         if personal_email and contact:
             return personal_email, contact, source, all_text
@@ -445,7 +473,7 @@ class LeadEnricher:
                     continue
                 
                 soup = BeautifulSoup(response.text, 'lxml')
-                page_text = soup.get_text()
+                page_text = soup.get_text(separator=' ')
                 all_text += "\n" + page_text
                 
                 if not personal_email:
@@ -519,15 +547,35 @@ class LeadEnricher:
         return discovered[:6]
     
     def _find_email(self, soup: BeautifulSoup, page_text: str) -> str:
+        junk_domains = ['example', 'test', 'domain', 'email@', 'noreply', 'no-reply',
+                        'unsubscribe', 'sentry', 'wixpress', 'godaddy', 'squarespace',
+                        'wordpress', 'mailchimp', 'googleapis', 'gstatic', 'cloudflare', 'filler@']
+
         mailto_links = soup.find_all('a', href=re.compile(r'^mailto:', re.I))
         for link in mailto_links:
             href = str(link.get('href', ''))
-            email = href.replace('mailto:', '').split('?')[0].strip()
+            email = href.replace('mailto:', '').replace('Mailto:', '').split('?')[0].strip()
             email = email.rstrip('.,;:!?)>]')
             if email and '@' in email:
-                if not any(x in email.lower() for x in ['example', 'test', 'domain', 'email@', 'noreply', 'no-reply', 'unsubscribe']):
+                if not any(x in email.lower() for x in junk_domains):
                     return email
-        
+
+        all_elements = soup.find_all(True, href=True)
+        for elem in all_elements:
+            href = str(elem.get('href', ''))
+            if 'mailto:' in href.lower() and '@' in href:
+                email = re.sub(r'^.*mailto:', '', href, flags=re.I).split('?')[0].strip()
+                email = email.rstrip('.,;:!?)>]')
+                if email and '@' in email:
+                    if not any(x in email.lower() for x in junk_domains):
+                        return email
+
+        raw_html = str(soup)
+        raw_mailto = re.findall(r'mailto:([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,7})', raw_html, re.I)
+        for email in raw_mailto:
+            if not any(x in email.lower() for x in junk_domains):
+                return email
+
         schema_scripts = soup.find_all('script', type='application/ld+json')
         for script in schema_scripts:
             try:
@@ -547,20 +595,22 @@ class LeadEnricher:
                         continue
                     email = item.get('email', '')
                     if email and '@' in email:
-                        if not any(x in email.lower() for x in ['example', 'test', 'noreply', 'no-reply']):
+                        if not any(x in email.lower() for x in junk_domains):
                             return email
                     if 'contactPoint' in item:
                         cp = item['contactPoint']
                         if isinstance(cp, dict):
                             email = cp.get('email', '')
                             if email and '@' in email:
-                                return email
+                                if not any(x in email.lower() for x in junk_domains):
+                                    return email
                         elif isinstance(cp, list):
                             for point in cp:
                                 if isinstance(point, dict):
                                     email = point.get('email', '')
                                     if email and '@' in email:
-                                        return email
+                                        if not any(x in email.lower() for x in junk_domains):
+                                            return email
             except (json.JSONDecodeError, TypeError):
                 pass
         
