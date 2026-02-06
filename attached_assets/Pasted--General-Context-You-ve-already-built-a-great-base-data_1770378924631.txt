@@ -1,0 +1,61 @@
+🧠 General Context:
+You’ve already built a great base database of wellness leads. Now refine and enrich it further.
+🎯 Goals:
+Ensure every lead has:
+A principal contact name (from website or Companies House)
+At least one email address (generic or guessed personal)
+A valid website or active Facebook page
+Improve data quality by:
+Filtering out fake or nonsensical names
+Archiving incomplete or unverified entries
+📥 Inputs:
+Existing unit8_leads.csv with partially complete records
+Google Places, Companies House, and the company’s own website for enrichment
+OpenAI API for scoring and logic
+🔍 Processing Instructions:
+🔹 1. Website Validation
+If a business does not have a functioning website, exclude it unless:
+It has an active Facebook business page with visible contact info or recent posts.
+🔹 2. Principal Name Enrichment
+Try to get a real person's name from:
+The “About” or “Team” page of their website
+The Clinicians / Practitioners / Team / Staff section
+If unavailable, cross-reference Companies House and pull Director names
+Reject:
+Any names under 5 characters (unless known valid, e.g. "Ali")
+Any names with non-human patterns, e.g. "Jfm Ixro", random strings
+🔹 3. Email Logic
+a. Generic Email
+Look for visible emails like:
+info@, admin@, contact@, hello@, reception@, etc.
+These are acceptable for generic outreach.
+Save in column: generic_email
+b. Personal Email (Guessed)
+If a principal name is known and domain is available, generate multiple guesses:
+firstname.lastname@domain
+f.lastname@domain
+firstname.l@domain
+firstnamelastname@domain
+initials@domain (e.g. for companies like Avamore)
+Store all guesses in column: guessed_personal_emails (as list)
+📤 Output Rules
+Final output should have two CSVs:
+✅ unit8_leads_enriched.csv
+Only include leads that:
+Have a working website or Facebook page
+Have either a real principal name or Companies House director
+Have at least one email (generic or guessed)
+New columns to add:
+principal_name
+generic_email
+guessed_personal_emails
+email_type = generic | personal | both
+website_verified = yes | no
+data_score = high | medium | low (optional confidence rating)
+🗂️ unit8_leads_excluded.csv
+Include rows that were excluded due to:
+No website or FB page
+No contact name or valid email
+Add columns:
+excluded_reason = no web presence | invalid domain | no contact | fake name
+included_in_export = no

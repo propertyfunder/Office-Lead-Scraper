@@ -240,6 +240,20 @@
     </div>
     
     <div class="container">
+        <div style="background:white; border-radius:10px; box-shadow:0 2px 6px rgba(0,0,0,0.06); padding:20px; margin-bottom:25px;">
+            <h3 style="margin-bottom:15px; color:#1e293b;">Refined Data Downloads</h3>
+            <div id="refinement-info" style="display:flex; gap:20px; flex-wrap:wrap; align-items:center;">
+                <div style="flex:1; min-width:200px;">
+                    <p style="color:#64748b; margin-bottom:8px;">Validated leads with principal names, verified websites, and classified emails.</p>
+                    <div id="refinement-stats" style="font-size:0.85rem; color:#64748b;"></div>
+                </div>
+                <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                    <a href="/api/download/enriched" class="btn btn-success" style="text-decoration:none;">Download Enriched (800)</a>
+                    <a href="/api/download/excluded" class="btn btn-secondary" style="text-decoration:none;">Download Excluded (693)</a>
+                </div>
+            </div>
+        </div>
+
         <div class="tabs">
             <button class="tab-btn active" onclick="switchTab('unit8')">Unit 8 Occupiers ({{ unit8_stats.total }})</button>
             <button class="tab-btn" onclick="switchTab('office')">Office Occupiers ({{ office_stats.total }})</button>
@@ -562,6 +576,25 @@
             }).join('');
         }
         
+        fetch('/api/refinement-stats')
+            .then(r => r.json())
+            .then(data => {
+                const el = document.getElementById('refinement-stats');
+                if (el && data.enriched) {
+                    let html = `<strong>${data.enriched}</strong> enriched (${data.high || 0} high, ${data.medium || 0} medium) | `;
+                    html += `<strong>${data.excluded || 0}</strong> excluded`;
+                    if (data.exclusion_reasons) {
+                        const reasons = Object.entries(data.exclusion_reasons).map(([k,v]) => `${v} ${k}`).join(', ');
+                        html += ` (${reasons})`;
+                    }
+                    el.innerHTML = html;
+                    const links = document.querySelectorAll('#refinement-info a');
+                    if (links[0]) links[0].textContent = `Download Enriched (${data.enriched})`;
+                    if (links[1]) links[1].textContent = `Download Excluded (${data.excluded || 0})`;
+                }
+            })
+            .catch(() => {});
+
         ['unit8', 'office'].forEach(cat => {
             const input = document.getElementById(cat + '-search');
             if (input) {

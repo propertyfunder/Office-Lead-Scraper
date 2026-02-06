@@ -8,6 +8,8 @@ app = Flask(__name__)
 app.secret_key = os.environ.get('SESSION_SECRET', 'dev-secret-key')
 
 CSV_FILE = 'leads.csv'
+ENRICHED_CSV = 'unit8_leads_enriched.csv'
+EXCLUDED_CSV = 'unit8_leads_excluded.csv'
 OPENAI_COST_FILE = '/tmp/openai_enrichment_cost.json'
 PLACES_API_FILE = '/tmp/places_api_stats.json'
 
@@ -231,6 +233,59 @@ def download_csv(category):
         mimetype='text/csv',
         headers={'Content-Disposition': f'attachment; filename={filename}'}
     )
+
+@app.route('/api/download/enriched')
+def download_enriched():
+    if not os.path.exists(ENRICHED_CSV):
+        return Response("Enriched CSV not found. Run refine_leads.py first.", status=404)
+    with open(ENRICHED_CSV, 'r', encoding='utf-8') as f:
+        content = f.read()
+    return Response(
+        content,
+        mimetype='text/csv',
+        headers={'Content-Disposition': 'attachment; filename=unit8_leads_enriched.csv'}
+    )
+
+@app.route('/api/download/excluded')
+def download_excluded():
+    if not os.path.exists(EXCLUDED_CSV):
+        return Response("Excluded CSV not found. Run refine_leads.py first.", status=404)
+    with open(EXCLUDED_CSV, 'r', encoding='utf-8') as f:
+        content = f.read()
+    return Response(
+        content,
+        mimetype='text/csv',
+        headers={'Content-Disposition': 'attachment; filename=unit8_leads_excluded.csv'}
+    )
+
+@app.route('/api/refinement-stats')
+def refinement_stats():
+    stats = {}
+    for label, path in [('enriched', ENRICHED_CSV), ('excluded', EXCLUDED_CSV)]:
+        if os.path.exists(path):
+            with open(path, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                rows = list(reader)
+                stats[label] = len(rows)
+                if label == 'enriched':
+                    stats['high'] = sum(1 for r in rows if r.get('data_score') == 'high')
+                    stats['medium'] = sum(1 for r in rows if r.get('data_score') == 'medium')
+                    stats['low'] = sum(1 for r in rows if r.get('data_score') == 'low')
+                    stats['with_principal'] = sum(1 for r in rows if r.get('principal_name'))
+                    stats['with_personal_email'] = sum(1 for r in rows if r.get('email_type') == 'personal')
+                    stats['with_generic_email'] = sum(1 for r in rows if r.get('generic_email'))
+                    stats['website_verified'] = sum(1 for r in rows if r.get('website_verified', '').lower() in ('yes', 'facebook'))
+                elif label == 'excluded':
+                    reasons = {}
+                    for r in rows:
+                        reason = r.get('excluded_reason', 'unknown')
+                        parts = [p.strip() for p in reason.replace('|', ';').split(';') if p.strip()]
+                        for part in parts:
+                            reasons[part] = reasons.get(part, 0) + 1
+                    stats['exclusion_reasons'] = reasons
+        else:
+            stats[label] = 0
+    return jsonify(stats)
 
 @app.route('/api/refresh')
 def api_refresh():

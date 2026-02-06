@@ -389,7 +389,8 @@ class LeadEnricher:
             elif should_use_openai:
                 if website_text or lead.website:
                     if not website_text and lead.website:
-                        _, _, _, website_text = self._enrich_from_website(lead)
+                        web_fallback = self._enrich_from_website(lead)
+                        website_text = web_fallback.get('text', '')
                     if website_text:
                         ai_contact, ai_email = self._openai_extract(lead, website_text)
                         self.openai_calls_per_record[record_key] = calls_for_record + 1
@@ -462,6 +463,34 @@ class LeadEnricher:
             return False
         if any(c.isdigit() for c in name):
             return False
+        business_words = {'clinic', 'surgery', 'medical', 'dental', 'practice', 'centre',
+                         'center', 'house', 'links', 'suite', 'treatment', 'therapy',
+                         'therapist', 'hygienist', 'university', 'care', 'hospital',
+                         'pharmacy', 'assurance', 'holistic', 'therapists', 'directory',
+                         'services', 'service', 'village', 'community', 'street', 'road',
+                         'podiatry', 'physiotherapist', 'osteopath', 'chiropractic',
+                         'acupuncture', 'hypnotherapy', 'counselling', 'nutrition',
+                         'pilates', 'yoga', 'massage', 'dentistry', 'aesthetics', 'beauty'}
+        if any(w in business_words for w in words):
+            return False
+        title_prefixes = {'dr', 'mr', 'mrs', 'ms', 'miss', 'prof', 'professor'}
+        name_words = [w for w in words if w.rstrip('.') not in title_prefixes]
+        for word in name_words:
+            alpha = re.sub(r'[^a-z]', '', word)
+            if len(alpha) >= 2:
+                vowels = sum(1 for c in alpha if c in 'aeiouy')
+                if vowels == 0:
+                    return False
+        alpha_only = re.sub(r'[^a-z]', '', name_lower)
+        if re.search(r'[^aeiouy]{5,}', alpha_only):
+            return False
+        unusual_bigrams = {'wl', 'wt', 'xz', 'zp', 'gf', 'gj',
+                          'kp', 'jp', 'jf', 'jm', 'mq', 'dk', 'dx', 'hk', 'pn',
+                          'rl', 'rq', 'sq', 'tp', 'vg', 'wk', 'xf', 'zf'}
+        for word in name_words:
+            alpha = re.sub(r'[^a-z]', '', word)
+            if len(alpha) >= 2 and alpha[:2] in unusual_bigrams:
+                return False
         return True
     
     def _is_generic_email(self, email: str) -> bool:
