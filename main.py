@@ -173,7 +173,15 @@ def load_leads_from_csv(filepath: str) -> List[BusinessLead]:
                 search_town=row.get('search_town', ''),
                 category=row.get('category', ''),
                 enrichment_source=row.get('enrichment_source', ''),
-                enrichment_status=row.get('enrichment_status', '')
+                enrichment_status=row.get('enrichment_status', ''),
+                ai_enriched=row.get('ai_enriched', ''),
+                email_guessed=row.get('email_guessed', ''),
+                contact_verified=row.get('contact_verified', ''),
+                generic_email=row.get('generic_email', ''),
+                contact_names=row.get('contact_names', ''),
+                personal_email_guesses=row.get('personal_email_guesses', ''),
+                contact_titles=row.get('contact_titles', ''),
+                multiple_contacts=row.get('multiple_contacts', '')
             )
             leads.append(lead)
     

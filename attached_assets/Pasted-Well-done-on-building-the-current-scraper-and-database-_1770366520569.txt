@@ -1,0 +1,40 @@
+Well done on building the current scraper and database — it’s made excellent progress. Now let's expand its functionality to make the outreach database more complete and effective for mailshots via HubSpot.
+🎯 Objective:
+Enhance existing company leads by extracting:
+A generic email (e.g. info@, hello@, contact@)
+One or more guessed personal emails based on name(s)
+Principal or staff member names from broader "team" page variants
+Record everything in a structured, deduplicated format
+📄 What to do for each company lead:
+1. Name Enrichment:
+Search for pages likely to contain people or team info:
+Keywords to match:
+["team", "our team", "meet the team", "clinicians", "practitioners", "about us", "leadership", "doctors", "therapists", "consultants", "staff", "directors", "specialists", "coaches", "instructors"]
+Extract up to 3 named individuals (ideally with titles and job roles if available).
+Do not prioritise individuals based on location — someone further afield may still be a strong expansion candidate.
+2. Generic Email Detection:
+Extract visible or mailto-linked generic emails.
+Typical examples: info@, admin@, hello@, contact@, clientcare@
+Store in a new field: generic_email
+3. Personal Email Guessing:
+For each extracted name and verified domain, generate multiple email guess formats:
+Example (name: Hannah Yeoman, domain: bodyset.co.uk):
+hannah.yeoman@bodyset.co.uk
+h.yeoman@bodyset.co.uk
+hannahy@bodyset.co.uk
+hy@bodyset.co.uk
+yeoman@bodyset.co.uk
+Add all guesses to a CSV column named: personal_email_guesses
+→ Store as a semicolon-separated list
+If the format from existing staff pages (e.g. jfm@avamore.com) suggests a preferred format, use that as the first guess and include the others.
+4. Column Structure in CSV Output:
+Ensure the output CSV includes the following columns:
+company_name	website	contact_names	generic_email	personal_email_guesses	contact_titles	location	multiple_contacts
+contact_names: e.g. “Hannah Yeoman; Sam Gough”
+personal_email_guesses: e.g. hannah.yeoman@...;h.yeoman@...;hannahy@...
+multiple_contacts: TRUE if >1 name found
+⚠️ Guardrails:
+Avoid duplication: Do not re-scrape companies already fully enriched.
+Don’t reprocess names/emails already in the database.
+Respect robots.txt and avoid scraping LinkedIn pages directly.
+If LinkedIn snippets are publicly visible in Google previews, light parsing is acceptable.

@@ -80,6 +80,38 @@ def guess_email(company_name: str, contact_name: str, domain: str = "") -> str:
     domain = domain.replace("www.", "").replace("http://", "").replace("https://", "").split("/")[0]
     return f"{first_name}.{last_name}@{domain}"
 
+def generate_email_guesses(contact_name: str, domain: str, known_format: str = "") -> List[str]:
+    if not contact_name or not domain:
+        return []
+    name_parts = contact_name.strip().lower().split()
+    if len(name_parts) < 2:
+        return []
+    first_name = re.sub(r'[^a-z]', '', name_parts[0])
+    last_name = re.sub(r'[^a-z]', '', name_parts[-1])
+    domain = domain.replace("www.", "").replace("http://", "").replace("https://", "").split("/")[0]
+    if not first_name or not last_name or not domain:
+        return []
+    guesses = [
+        f"{first_name}.{last_name}@{domain}",
+        f"{first_name[0]}.{last_name}@{domain}",
+        f"{first_name}{last_name[0]}@{domain}",
+        f"{first_name[0]}{last_name[0]}@{domain}",
+        f"{last_name}@{domain}",
+        f"{first_name}@{domain}",
+        f"{first_name}_{last_name}@{domain}",
+        f"{first_name}{last_name}@{domain}",
+    ]
+    if known_format and known_format not in guesses:
+        guesses.insert(0, known_format)
+    elif known_format and known_format in guesses:
+        guesses.remove(known_format)
+        guesses.insert(0, known_format)
+    seen = []
+    for g in guesses:
+        if g not in seen:
+            seen.append(g)
+    return seen
+
 def extract_domain(url: str) -> str:
     if not url:
         return ""
@@ -125,7 +157,8 @@ def save_leads_to_csv(leads: List[BusinessLead], filepath: str, mode: str = 'a')
         'email', 'phone', 'linkedin', 'location', 'employee_count', 
         'source', 'ai_score', 'ai_reason', 'tag', 'google_rating',
         'place_id', 'search_town', 'category', 'enrichment_source', 'enrichment_status', 
-        'ai_enriched', 'email_guessed', 'contact_verified'
+        'ai_enriched', 'email_guessed', 'contact_verified',
+        'generic_email', 'contact_names', 'personal_email_guesses', 'contact_titles', 'multiple_contacts'
     ]
     with open(filepath, mode, newline='', encoding='utf-8') as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)

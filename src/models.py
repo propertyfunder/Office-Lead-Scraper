@@ -19,12 +19,17 @@ class BusinessLead:
     google_rating: str = ""
     place_id: str = ""
     search_town: str = ""
-    category: str = ""  # 'unit8' for wellness/clinical, 'office' for general office
-    enrichment_source: str = ""  # 'website', 'linkedin', 'companies_house', 'openai', 'guessed_email', 'not_found'
-    enrichment_status: str = ""  # 'complete', 'missing_email', 'missing_name', 'incomplete'
-    ai_enriched: str = ""  # 'true' if OpenAI was used for enrichment
-    email_guessed: str = ""  # 'true' if email was guessed from name+domain pattern
-    contact_verified: str = ""  # 'true' if contact found from authoritative source (CH, website)
+    category: str = ""
+    enrichment_source: str = ""
+    enrichment_status: str = ""
+    ai_enriched: str = ""
+    email_guessed: str = ""
+    contact_verified: str = ""
+    generic_email: str = ""
+    contact_names: str = ""
+    personal_email_guesses: str = ""
+    contact_titles: str = ""
+    multiple_contacts: str = ""
     
     def to_dict(self) -> dict:
         return asdict(self)
