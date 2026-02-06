@@ -217,11 +217,14 @@ def download_csv(category):
         return Response("No leads found", status=404)
     
     output = io.StringIO()
-    fieldnames = ['company_name', 'sector', 'location', 'website', 'contact_name',
-                  'contact_names', 'generic_email', 'email', 'personal_email_guesses',
+    fieldnames = ['company_name', 'sector', 'location', 'website', 'website_verified',
+                  'principal_name', 'contact_name', 'contact_name_validity',
+                  'contact_names', 'generic_email', 'email', 'guessed_personal_emails',
+                  'personal_email_guesses', 'email_type',
                   'contact_titles', 'multiple_contacts',
                   'phone', 'linkedin', 'ai_score', 'ai_reason', 'tag', 
-                  'google_rating', 'category', 'place_id', 'search_town', 
+                  'google_rating', 'data_score', 'archived', 'category',
+                  'place_id', 'search_town', 
                   'enrichment_source', 'enrichment_status', 'ai_enriched', 
                   'email_guessed', 'contact_verified']
     writer = csv.DictWriter(output, fieldnames=fieldnames, extrasaction='ignore')
@@ -272,9 +275,12 @@ def refinement_stats():
                     stats['medium'] = sum(1 for r in rows if r.get('data_score') == 'medium')
                     stats['low'] = sum(1 for r in rows if r.get('data_score') == 'low')
                     stats['with_principal'] = sum(1 for r in rows if r.get('principal_name'))
-                    stats['with_personal_email'] = sum(1 for r in rows if r.get('email_type') == 'personal')
+                    stats['with_personal_email'] = sum(1 for r in rows if r.get('email_type') in ('personal', 'both'))
                     stats['with_generic_email'] = sum(1 for r in rows if r.get('generic_email'))
+                    stats['with_guesses'] = sum(1 for r in rows if r.get('guessed_personal_emails'))
                     stats['website_verified'] = sum(1 for r in rows if r.get('website_verified', '').lower() in ('yes', 'facebook'))
+                    stats['name_valid'] = sum(1 for r in rows if r.get('contact_name_validity') == 'valid')
+                    stats['archived_false'] = sum(1 for r in rows if r.get('archived') == 'FALSE')
                 elif label == 'excluded':
                     reasons = {}
                     for r in rows:

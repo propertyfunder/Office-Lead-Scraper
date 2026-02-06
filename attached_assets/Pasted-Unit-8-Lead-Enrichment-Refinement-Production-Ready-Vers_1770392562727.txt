@@ -1,0 +1,162 @@
+Unit 8 Lead Enrichment & Refinement (Production-Ready Version)
+🧠 Context
+Well done — the enrichment and refinement pipeline is working well.
+We now want to:
+Ensure no fake or placeholder contact names enter the database.
+Ensure every viable business has both:
+A generic email
+A structured set of personal email guesses
+Automatically re-refine weak or suspicious records.
+Archive low-quality leads rather than delete them.
+Maintain clean exports for HubSpot outreach.
+🎯 OBJECTIVE
+Each enriched lead must have:
+✅ A valid principal name
+✅ A working website or active Facebook page
+✅ At least one email (generic or personal)
+✅ A structured set of personal email guesses
+✅ Clear validation and exclusion logic
+🔍 1. CONTACT NAME ENRICHMENT
+Primary Sources (in order):
+Company website:
+/about
+/team
+/clinicians
+/staff
+/leadership
+/contact
+/our-team
+/meet-the-team
+Companies House:
+Pull active directors
+Use director full names
+LinkedIn (light search only, respect anti-scraping safeguards)
+❌ Reject Contact Names That:
+Are under 5 characters (unless clearly valid: e.g. Ali, Jo)
+Contain numbers or symbols
+Match business/structural words:
+clinic, surgery, therapy, hospital, links, suite, road, centre, admin
+Contain abnormal consonant clusters (e.g. Spjiok, Kpn, Gfi)
+Fail vowel presence per word
+Contain unusual trigram patterns
+Use enhanced validation logic already implemented.
+🏷 Add Column:
+contact_name_validity = valid | suspicious | missing
+📧 2. EMAIL STRUCTURE
+For every valid domain:
+A) Generic Email
+Extract from:
+Visible page text
+mailto links (even if icon-based)
+footer/contact section
+Examples:
+info@
+hello@
+contact@
+admin@
+clientcare@
+reception@
+Store in:
+generic_email
+B) Personal Email Guesses
+If principal name AND domain exist:
+Generate all common formats:
+firstname.lastname@
+f.lastname@
+firstname.l@
+firstnamelastname@
+firstname@
+lastname@
+initials@ (e.g. js@domain.com)
+firstinitiallastname@
+firstnamelastinitial@
+Store ALL guesses in:
+personal_email_guesses
+(pipe-separated)
+Do NOT overwrite confirmed real emails.
+C) Email Classification
+Add:
+email_type = generic | personal | both
+Main email field should contain:
+The best confirmed real email
+Otherwise the best generic
+🌐 3. WEBSITE VALIDATION RULE
+Include only if:
+Working website
+OR
+Active Facebook business page
+If neither:
+Move to excluded file.
+Add:
+website_verified = yes | facebook | no
+🔁 4. RECURSIVE REFINEMENT (CRITICAL)
+If a record contains:
+Fake/suspicious name
+Only generic email
+Missing email
+Low data_score
+Then:
+Re-run enrichment attempt using:
+Re-scan Team/About pages
+Re-check Companies House directors
+Attempt LinkedIn context search
+Regenerate personal email guesses
+Only stop retrying if:
+No valid website
+Domain inactive
+No Facebook presence
+Do NOT leave placeholder data if refinement is possible.
+🗂 5. ARCHIVING LOGIC
+Do NOT delete poor-quality records.
+Instead:
+Export two files:
+✅ unit8_leads_enriched.csv
+Must contain:
+Valid principal name
+Valid website
+At least one email
+email_type populated
+personal_email_guesses populated (if name exists)
+Add:
+data_score = high | medium
+archived = FALSE
+🗂 unit8_leads_excluded.csv
+Include records excluded due to:
+fake name
+no contact
+no email
+no web presence
+Add:
+excluded_reason
+archived = TRUE
+🛡 6. PROTECTION RULES
+Do NOT overwrite manually corrected valid data.
+Do NOT downgrade high-quality entries.
+Only improve missing or suspicious fields.
+Maintain deduplication by:
+company_name
+domain
+company_number (if available)
+🧪 7. FINAL VALIDATION CHECK
+Before saving enriched file:
+Ensure NO record in enriched file is missing:
+contact_name
+AND
+website_verified != no
+AND
+at least one email
+If so → move to excluded.
+📊 8. DASHBOARD (Already Working Well)
+Maintain:
+Enriched count
+Excluded count
+Breakdown by:
+fake name
+no contact
+no email
+no web presence
+Download buttons
+🔚 Final Instruction
+Automatically attempt refinement where placeholder or low-confidence data exists.
+Only accept high-confidence names and contact channels.
+Archive weak data — never pollute the enriched dataset.

@@ -248,8 +248,8 @@
                     <div id="refinement-stats" style="font-size:0.85rem; color:#64748b;"></div>
                 </div>
                 <div style="display:flex; gap:10px; flex-wrap:wrap;">
-                    <a href="/api/download/enriched" class="btn btn-success" style="text-decoration:none;">Download Enriched (800)</a>
-                    <a href="/api/download/excluded" class="btn btn-secondary" style="text-decoration:none;">Download Excluded (693)</a>
+                    <a href="/api/download/enriched" class="btn btn-success" style="text-decoration:none;">Download Enriched</a>
+                    <a href="/api/download/excluded" class="btn btn-secondary" style="text-decoration:none;">Download Archived</a>
                 </div>
             </div>
         </div>
@@ -581,8 +581,13 @@
             .then(data => {
                 const el = document.getElementById('refinement-stats');
                 if (el && data.enriched) {
-                    let html = `<strong>${data.enriched}</strong> enriched (${data.high || 0} high, ${data.medium || 0} medium) | `;
-                    html += `<strong>${data.excluded || 0}</strong> excluded`;
+                    let html = `<strong>${data.enriched}</strong> enriched`;
+                    html += ` (${data.high || 0} high, ${data.medium || 0} medium)`;
+                    html += ` &bull; ${data.with_principal || 0} named contacts`;
+                    html += ` &bull; ${data.with_personal_email || 0} personal emails`;
+                    html += ` &bull; ${data.with_generic_email || 0} generic emails`;
+                    html += ` &bull; ${data.with_guesses || 0} with guesses`;
+                    html += `<br><strong>${data.excluded || 0}</strong> archived`;
                     if (data.exclusion_reasons) {
                         const reasons = Object.entries(data.exclusion_reasons).map(([k,v]) => `${v} ${k}`).join(', ');
                         html += ` (${reasons})`;
@@ -590,7 +595,7 @@
                     el.innerHTML = html;
                     const links = document.querySelectorAll('#refinement-info a');
                     if (links[0]) links[0].textContent = `Download Enriched (${data.enriched})`;
-                    if (links[1]) links[1].textContent = `Download Excluded (${data.excluded || 0})`;
+                    if (links[1]) links[1].textContent = `Download Archived (${data.excluded || 0})`;
                 }
             })
             .catch(() => {});
