@@ -27,14 +27,20 @@ GENERIC_PREFIXES = {
 }
 
 BUSINESS_WORDS = {
-    'clinic', 'surgery', 'medical', 'dental', 'practice', 'centre',
-    'center', 'house', 'links', 'suite', 'treatment', 'therapy',
-    'therapist', 'hygienist', 'university', 'care', 'hospital',
-    'pharmacy', 'assurance', 'holistic', 'therapists', 'directory',
-    'services', 'service', 'village', 'community', 'street', 'road',
-    'admin', 'podiatry', 'physiotherapist', 'osteopath', 'chiropractic',
-    'acupuncture', 'hypnotherapy', 'counselling', 'nutrition',
-    'pilates', 'yoga', 'massage', 'dentistry', 'aesthetics', 'beauty'
+    'clinic', 'clinics', 'surgery', 'surgeries', 'medical', 'dental',
+    'practice', 'practices', 'centre', 'centers', 'center', 'centres',
+    'house', 'links', 'suite', 'treatment', 'treatments', 'therapy',
+    'therapist', 'therapists', 'hygienist', 'university', 'care',
+    'hospital', 'hospitals', 'pharmacy', 'assurance', 'holistic',
+    'directory', 'services', 'service', 'village', 'community',
+    'street', 'road', 'admin', 'podiatry', 'physiotherapist',
+    'osteopath', 'chiropractic', 'acupuncture', 'hypnotherapy',
+    'counselling', 'nutrition', 'pilates', 'yoga', 'massage',
+    'dentistry', 'aesthetics', 'beauty', 'limited', 'ltd',
+    'group', 'associates', 'solutions', 'consulting', 'consultancy',
+    'foundation', 'trust', 'partnership', 'potential', 'limitless',
+    'wellness', 'fitness', 'studio', 'studios', 'academy', 'institute',
+    'school', 'college', 'nursery'
 }
 
 PLACEHOLDER_NAMES = {
@@ -65,10 +71,16 @@ def is_valid_name(name: str) -> str:
     if len(words) < 2:
         return 'missing'
 
+    if len(words) > 3:
+        return 'suspicious'
+
     for word in words:
-        word_lower = word.lower().rstrip('.')
+        word_lower = word.lower().rstrip('.').rstrip("'s")
         if word_lower in BUSINESS_WORDS:
             return 'missing'
+
+    if re.search(r"'s\s+\w", name_clean):
+        return 'suspicious'
 
     title_prefixes = {'dr', 'mr', 'mrs', 'ms', 'miss', 'prof', 'professor'}
     name_words = [w for w in words if w.lower().rstrip('.') not in title_prefixes]

@@ -469,15 +469,25 @@ class LeadEnricher:
             return False
         if any(c.isdigit() for c in name):
             return False
-        business_words = {'clinic', 'surgery', 'medical', 'dental', 'practice', 'centre',
-                         'center', 'house', 'links', 'suite', 'treatment', 'therapy',
-                         'therapist', 'hygienist', 'university', 'care', 'hospital',
-                         'pharmacy', 'assurance', 'holistic', 'therapists', 'directory',
-                         'services', 'service', 'village', 'community', 'street', 'road',
-                         'podiatry', 'physiotherapist', 'osteopath', 'chiropractic',
-                         'acupuncture', 'hypnotherapy', 'counselling', 'nutrition',
-                         'pilates', 'yoga', 'massage', 'dentistry', 'aesthetics', 'beauty'}
-        if any(w in business_words for w in words):
+        business_words = {'clinic', 'clinics', 'surgery', 'surgeries', 'medical', 'dental',
+                         'practice', 'practices', 'centre', 'centers', 'center', 'centres',
+                         'house', 'links', 'suite', 'treatment', 'treatments', 'therapy',
+                         'therapist', 'therapists', 'hygienist', 'university', 'care',
+                         'hospital', 'hospitals', 'pharmacy', 'assurance', 'holistic',
+                         'directory', 'services', 'service', 'village', 'community',
+                         'street', 'road', 'podiatry', 'physiotherapist', 'osteopath',
+                         'chiropractic', 'acupuncture', 'hypnotherapy', 'counselling',
+                         'nutrition', 'pilates', 'yoga', 'massage', 'dentistry',
+                         'aesthetics', 'beauty', 'limited', 'ltd', 'group', 'associates',
+                         'solutions', 'consulting', 'consultancy', 'foundation', 'trust',
+                         'partnership', 'potential', 'limitless', 'wellness', 'fitness',
+                         'studio', 'studios', 'academy', 'institute', 'school', 'college',
+                         'nursery'}
+        if any(w.rstrip("'s") in business_words for w in words):
+            return False
+        if len(words) > 3:
+            return False
+        if re.search(r"'s\s+\w", name_lower):
             return False
         title_prefixes = {'dr', 'mr', 'mrs', 'ms', 'miss', 'prof', 'professor'}
         name_words = [w for w in words if w.rstrip('.') not in title_prefixes]
