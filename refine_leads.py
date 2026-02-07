@@ -1,21 +1,23 @@
 #!/usr/bin/env python3
 """
-Lead Data Refinement Script (Production-Ready)
-Validates, cleans, re-enriches weak records, and splits unit8 leads
-into enriched and excluded CSVs with full validation and archiving.
+Lead Data Refinement Script v2
+- Exclusion: only if no website AND no Facebook page
+- Flag-based system: name_review_needed, missing_email instead of excluding
+- Multi-contact team_email_guesses
+- Deduplication when contact_name matches principal_name
+- Two output files: enriched (all usable/flagged) and excluded (no web presence)
 """
 import csv
 import re
 import sys
 import os
-import requests
 from urllib.parse import urlparse
 from src.utils import generate_email_guesses, extract_domain
-from src.models import BusinessLead
 
 INPUT_FILE = "leads.csv"
 ENRICHED_OUTPUT = "unit8_leads_enriched.csv"
 EXCLUDED_OUTPUT = "unit8_leads_excluded.csv"
+CH_ENRICHED_FILE = "unit8_leads_enriched.csv"
 
 GENERIC_PREFIXES = {
     'info', 'admin', 'contact', 'hello', 'reception', 'enquiries',
@@ -54,39 +56,67 @@ SOCIAL_DOMAINS = ['facebook.com', 'fb.com', 'instagram.com', 'twitter.com',
 
 SHORT_VALID_NAMES = {'ali', 'jo', 'al', 'ed', 'em', 'mo', 'bo', 'ty', 'di', 'lu', 'vi', 'aj', 'jd'}
 
+TITLE_PREFIXES = {'dr', 'mr', 'mrs', 'ms', 'miss', 'prof', 'professor', 'rev', 'sir', 'dame', 'lord', 'lady'}
+
+JOB_TITLE_WORDS = {
+    'director', 'manager', 'ceo', 'cto', 'cfo', 'coo', 'founder',
+    'partner', 'associate', 'senior', 'junior', 'head', 'lead',
+    'consultant', 'specialist', 'coordinator', 'officer', 'executive',
+    'president', 'vice', 'chairman', 'secretary', 'treasurer',
+    'supervisor', 'administrator', 'analyst', 'engineer', 'developer',
+    'therapist', 'practitioner', 'clinician', 'nurse', 'doctor',
+    'surgeon', 'dentist', 'hygienist', 'receptionist', 'assistant',
+    'intern', 'trainee', 'apprentice', 'volunteer'
+}
+
+NAME_PREFIXES = {'mc', 'mac', 'van', 'von', 'de', "o'", 'al', 'el', 'ben', 'le', 'la', 'di'}
+
+UNUSUAL_BIGRAMS = {'wl', 'wt', 'xz', 'zp', 'gf', 'gj',
+                   'kp', 'jp', 'jf', 'jm', 'mq', 'dk', 'dx', 'hk', 'pn',
+                   'rl', 'rq', 'sq', 'tp', 'vg', 'wk', 'xf', 'zf',
+                   'qk', 'qx', 'qz', 'vx', 'wx', 'zx', 'bx', 'cx',
+                   'fx', 'hx', 'jx', 'kx', 'mx', 'px'}
+
+UNUSUAL_TRIGRAMS = {'spj', 'spk', 'spn', 'zpk', 'etx', 'xzp', 'qkr',
+                    'bvd', 'gkl', 'jkl', 'kzp', 'pzk', 'vkd', 'wqr'}
+
 
 def is_valid_name(name: str) -> str:
-    """Returns 'valid', 'suspicious', or 'missing'."""
+    """Returns 'valid', 'review', or 'invalid'."""
     if not name or len(name.strip()) < 2:
-        return 'missing'
+        return 'invalid'
 
     name_clean = name.strip()
     if name_clean.lower() in PLACEHOLDER_NAMES:
-        return 'missing'
+        return 'invalid'
 
     if any(c.isdigit() for c in name_clean):
-        return 'missing'
+        return 'invalid'
 
     words = name_clean.split()
     if len(words) < 2:
-        return 'missing'
+        return 'invalid'
 
-    if len(words) > 3:
-        return 'suspicious'
+    if len(words) > 4:
+        return 'review'
 
-    for word in words:
-        word_lower = word.lower().rstrip('.').rstrip("'s")
-        if word_lower in BUSINESS_WORDS:
-            return 'missing'
-
-    if re.search(r"'s\s+\w", name_clean):
-        return 'suspicious'
-
-    title_prefixes = {'dr', 'mr', 'mrs', 'ms', 'miss', 'prof', 'professor'}
-    name_words = [w for w in words if w.lower().rstrip('.') not in title_prefixes]
+    name_words = [w for w in words if w.lower().rstrip('.') not in TITLE_PREFIXES]
 
     if len(name_words) < 1:
-        return 'missing'
+        return 'invalid'
+
+    for word in name_words:
+        word_lower = word.lower().rstrip('.').rstrip("'s")
+        if word_lower in BUSINESS_WORDS:
+            return 'invalid'
+
+    role_suffixes = JOB_TITLE_WORDS
+    last_word = words[-1].lower()
+    if last_word in role_suffixes:
+        return 'review'
+
+    if re.match(r'^(Spire|NHS|Private|Victoria|Aberdeen|Durham|Hillcroft|Lisle)\b', name_clean):
+        return 'invalid'
 
     for word in name_words:
         alpha = re.sub(r'[^a-zA-Z]', '', word)
@@ -94,60 +124,71 @@ def is_valid_name(name: str) -> str:
             if alpha.lower() not in SHORT_VALID_NAMES:
                 continue
         if len(alpha) >= 2:
-            word_vowels = sum(1 for c in alpha.lower() if c in 'aeiouy')
-            if word_vowels == 0:
-                return 'missing'
+            vowel_count = sum(1 for c in alpha.lower() if c in 'aeiouy')
+            if vowel_count == 0:
+                return 'invalid'
+            vowel_ratio = vowel_count / len(alpha)
+            if len(alpha) >= 4 and vowel_ratio < 0.15:
+                return 'review'
 
     alpha_only = re.sub(r'[^a-zA-Z]', '', name_clean)
     if len(alpha_only) < 4:
         if not any(w.lower() in SHORT_VALID_NAMES for w in name_words):
-            return 'missing'
+            return 'invalid'
 
     if re.search(r'[^aeiouyAEIOUY\s]{5,}', alpha_only):
-        return 'missing'
+        return 'review'
 
-    if re.match(r'^(Spire|NHS|Private|Victoria|Aberdeen|Durham|Hillcroft|Lisle)\b', name_clean):
-        return 'missing'
-
-    role_suffixes = {'physiotherapist', 'podiatry', 'osteopath', 'chiropractic',
-                     'acupuncture', 'hypnotherapy', 'counselling', 'counseling',
-                     'nutrition', 'pilates', 'yoga', 'massage', 'dentistry',
-                     'aesthetics', 'beauty'}
-    last_word = words[-1].lower()
-    if last_word in role_suffixes:
-        return 'missing'
-
-    name_prefixes = {'mc', 'mac', 'van', 'von', 'de', "o'"}
     for w in name_words:
         alpha = re.sub(r'[^a-zA-Z]', '', w).lower()
         if len(alpha) < 2:
             continue
+
         check_alpha = alpha
-        for prefix in name_prefixes:
+        for prefix in NAME_PREFIXES:
             clean_prefix = prefix.replace("'", "")
             if alpha.startswith(clean_prefix) and len(alpha) > len(clean_prefix) + 1:
                 check_alpha = alpha[len(clean_prefix):]
                 break
+
         leading_consonants = 0
         for c in check_alpha:
             if c in 'aeiouy':
                 break
             leading_consonants += 1
         if leading_consonants >= 4:
-            return 'missing'
+            return 'review'
 
-    unusual_bigrams = {'wl', 'wt', 'xz', 'zp', 'gf', 'gj',
-                       'kp', 'jp', 'jf', 'jm', 'mq', 'dk', 'dx', 'hk', 'pn',
-                       'rl', 'rq', 'sq', 'tp', 'vg', 'wk', 'xf', 'zf'}
-    unusual_trigrams = {'spj', 'spk', 'spn', 'zpk', 'etx'}
     for w in name_words:
         alpha = re.sub(r'[^a-zA-Z]', '', w).lower()
-        if len(alpha) >= 2 and alpha[:2] in unusual_bigrams:
-            return 'missing'
-        if len(alpha) >= 3 and alpha[:3] in unusual_trigrams:
-            return 'missing'
+        if len(alpha) >= 2 and alpha[:2] in UNUSUAL_BIGRAMS:
+            return 'review'
+        if len(alpha) >= 3 and alpha[:3] in UNUSUAL_TRIGRAMS:
+            return 'review'
+
+    if re.search(r'(.)\1{2,}', alpha_only.lower()):
+        return 'review'
 
     return 'valid'
+
+
+def strip_job_titles(name: str) -> str:
+    if not name:
+        return name
+    words = name.strip().split()
+    cleaned = []
+    for w in words:
+        w_lower = w.lower().rstrip('.,;:')
+        if w_lower in TITLE_PREFIXES:
+            continue
+        if w_lower in JOB_TITLE_WORDS:
+            continue
+        if w_lower in {'–', '-', '|', '/'}:
+            break
+        cleaned.append(w)
+    result = ' '.join(cleaned).strip()
+    result = re.sub(r'\s*[-–|/].*$', '', result).strip()
+    return result if len(result.split()) >= 2 else name.strip()
 
 
 def is_facebook_url(url: str) -> bool:
@@ -162,6 +203,19 @@ def is_social_media_url(url: str) -> bool:
     return any(d in url.lower() for d in SOCIAL_DOMAINS)
 
 
+def extract_facebook_url(row: dict) -> str:
+    website = row.get('website', '').strip()
+    if is_facebook_url(website):
+        return website
+
+    for field in ['linkedin', 'source', 'enrichment_source']:
+        val = row.get(field, '').strip()
+        if val and is_facebook_url(val):
+            return val
+
+    return ''
+
+
 def classify_email(email: str) -> str:
     if not email or '@' not in email:
         return ''
@@ -171,19 +225,69 @@ def classify_email(email: str) -> str:
     return 'personal'
 
 
+def generate_team_email_guesses(contact_names_str: str, domain: str, exclude_name: str = '') -> str:
+    if not contact_names_str or not domain:
+        return ''
+
+    names = [n.strip() for n in contact_names_str.replace('|', ';').split(';') if n.strip()]
+    exclude_lower = exclude_name.strip().lower() if exclude_name else ''
+
+    all_guesses = []
+    for name in names:
+        if name.lower() == exclude_lower:
+            continue
+        validity = is_valid_name(name)
+        if validity == 'invalid':
+            continue
+        name_clean = strip_job_titles(name)
+        guesses = generate_email_guesses(name_clean, domain)
+        if guesses:
+            best_guess = guesses[0]
+            all_guesses.append(f"{name_clean}: {best_guess}")
+
+    return ' | '.join(all_guesses)
+
+
+def deduplicate_email_guesses(contact_name: str, principal_name: str,
+                               personal_guesses: str, principal_guess: str) -> tuple:
+    if not contact_name or not principal_name:
+        return personal_guesses, principal_guess
+
+    if contact_name.strip().lower() == principal_name.strip().lower():
+        if personal_guesses and principal_guess:
+            p_emails = [e.strip() for e in personal_guesses.split('|')]
+            if principal_guess.strip() in p_emails:
+                return personal_guesses, ''
+            return personal_guesses, ''
+        elif principal_guess and not personal_guesses:
+            return principal_guess, ''
+
+    return personal_guesses, principal_guess
+
+
 def compute_data_score(row: dict) -> str:
     score = 0
     if row.get('website_verified') == 'yes':
         score += 2
     elif row.get('website_verified') == 'facebook':
         score += 1
-    if row.get('contact_name_validity') == 'valid':
+
+    name_validity = is_valid_name(row.get('contact_name', ''))
+    if name_validity == 'valid':
         score += 2
-    if row.get('email') and classify_email(row['email']) == 'personal':
+    elif name_validity == 'review':
+        score += 1
+
+    if row.get('principal_name', '').strip():
+        score += 1
+
+    email = row.get('contact_email', '') or row.get('email', '')
+    if email and classify_email(email) == 'personal':
         score += 2
     elif row.get('generic_email'):
         score += 1
-    if row.get('guessed_personal_emails'):
+
+    if row.get('personal_email_guesses'):
         score += 1
     if row.get('phone'):
         score += 1
@@ -201,42 +305,24 @@ def compute_data_score(row: dict) -> str:
     return 'low'
 
 
-def row_to_lead(row: dict) -> BusinessLead:
-    return BusinessLead(
-        company_name=row.get('company_name', ''),
-        website=row.get('website', ''),
-        sector=row.get('sector', ''),
-        contact_name=row.get('contact_name', ''),
-        email=row.get('email', ''),
-        linkedin=row.get('linkedin', ''),
-        location=row.get('location', ''),
-        employee_count=row.get('employee_count', ''),
-        source=row.get('source', ''),
-        ai_score=row.get('ai_score', ''),
-        ai_reason=row.get('ai_reason', ''),
-        tag=row.get('tag', ''),
-        phone=row.get('phone', ''),
-        google_rating=row.get('google_rating', ''),
-        place_id=row.get('place_id', ''),
-        search_town=row.get('search_town', ''),
-        category=row.get('category', ''),
-        enrichment_source=row.get('enrichment_source', ''),
-        enrichment_status=row.get('enrichment_status', ''),
-        ai_enriched=row.get('ai_enriched', ''),
-        email_guessed=row.get('email_guessed', ''),
-        contact_verified=row.get('contact_verified', ''),
-        generic_email=row.get('generic_email', ''),
-        contact_names=row.get('contact_names', ''),
-        personal_email_guesses=row.get('personal_email_guesses', ''),
-        contact_titles=row.get('contact_titles', ''),
-        multiple_contacts=row.get('multiple_contacts', ''),
-        principal_name=row.get('principal_name', ''),
-        principal_email_guess=row.get('principal_email_guess', ''),
-    )
-
-
-def lead_to_row(lead: BusinessLead) -> dict:
-    return lead.to_dict()
+def load_ch_data() -> dict:
+    ch_data = {}
+    if os.path.exists(CH_ENRICHED_FILE):
+        try:
+            with open(CH_ENRICHED_FILE, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    key = row.get('company_name', '').strip().lower()
+                    pname = row.get('principal_name', '').strip()
+                    pguess = row.get('principal_email_guess', '').strip()
+                    if key and (pname or pguess):
+                        ch_data[key] = {
+                            'principal_name': pname,
+                            'principal_email_guess': pguess
+                        }
+        except Exception as e:
+            print(f"  Warning: Could not load CH data from {CH_ENRICHED_FILE}: {e}")
+    return ch_data
 
 
 def deduplicate_leads(leads: list) -> list:
@@ -269,135 +355,62 @@ def deduplicate_leads(leads: list) -> list:
     return deduped
 
 
-def attempt_re_enrichment(weak_leads: list, max_records: int = 100) -> list:
-    """Re-enrich weak/suspicious records using the enricher pipeline.
-    
-    Prioritizes records with fake names (fixable via website/CH) over
-    records missing contact entirely. Caps at max_records to avoid timeout.
-    """
-    if not weak_leads:
-        return weak_leads
-
-    fake_name_leads = []
-    other_weak = []
-    for lead in weak_leads:
-        contact = lead.get('contact_name', '').strip()
-        if contact and is_valid_name(contact) != 'valid':
-            fake_name_leads.append(lead)
-        else:
-            other_weak.append(lead)
-
-    to_enrich = fake_name_leads[:max_records]
-    remaining_slots = max(0, max_records - len(to_enrich))
-    to_enrich.extend(other_weak[:remaining_slots])
-    skip_leads = fake_name_leads[max_records:] + other_weak[remaining_slots:]
-
-    print(f"  [Re-enrich] {len(to_enrich)} to re-enrich ({len(fake_name_leads)} fake names, {len(other_weak)} missing data)")
-    if skip_leads:
-        print(f"  [Re-enrich] {len(skip_leads)} skipped (over limit of {max_records})")
-
-    try:
-        from src.enricher import LeadEnricher
-        enricher = LeadEnricher()
-    except Exception as e:
-        print(f"  [Re-enrich] Could not initialize enricher: {e}")
-        return weak_leads
-
-    re_enriched = []
-    for i, row in enumerate(to_enrich):
-        if (i + 1) % 20 == 0:
-            print(f"  [Re-enrich] Processing {i + 1}/{len(to_enrich)}...")
-
-        website = row.get('website', '').strip()
-        has_website = bool(website) and not is_social_media_url(website)
-        has_facebook = is_facebook_url(website)
-
-        if not has_website and not has_facebook:
-            re_enriched.append(row)
-            continue
-
-        lead = row_to_lead(row)
-        if lead.contact_name and is_valid_name(lead.contact_name) != 'valid':
-            lead.contact_name = ''
-            lead.contact_verified = ''
-
-        try:
-            enriched_lead = enricher.enrich(lead, skip_if_complete=False)
-            updated_row = lead_to_row(enriched_lead)
-            protected_fields = {'ai_score', 'ai_reason', 'google_rating', 'place_id',
-                                'search_town', 'category', 'tag', 'location', 'sector',
-                                'company_name', 'source',
-                                'principal_name', 'principal_email_guess'}
-            for key, orig_val in row.items():
-                if key in protected_fields and orig_val and not updated_row.get(key):
-                    updated_row[key] = orig_val
-                elif key not in updated_row:
-                    updated_row[key] = orig_val
-            re_enriched.append(updated_row)
-        except Exception as e:
-            print(f"  [Re-enrich] Error for {row.get('company_name', '?')}: {e}")
-            re_enriched.append(row)
-
-    re_enriched.extend(skip_leads)
-    return re_enriched
-
-
-def process_lead(lead: dict) -> dict:
-    """Process a single lead: validate names, classify emails, generate guesses.
-    
-    Field meanings:
-      principal_name = Companies House director (official registrant)
-      principal_email_guess = email guess for the CH director
-      contact_name = best website team contact (from team/about pages)
-      contact_names = all website team contacts (semicolon-separated)
-    """
-
+def process_lead(lead: dict, ch_data: dict) -> dict:
     website = lead.get('website', '').strip()
-    has_website = bool(website) and not is_social_media_url(website)
+    has_real_website = bool(website) and not is_social_media_url(website)
     has_facebook = is_facebook_url(website)
 
-    if has_website:
+    fb_url = extract_facebook_url(lead)
+    lead['facebook_url'] = fb_url
+
+    if has_real_website:
         lead['website_verified'] = 'yes'
-    elif has_facebook:
+    elif has_facebook or fb_url:
         lead['website_verified'] = 'facebook'
     else:
         lead['website_verified'] = 'no'
 
+    company_key = lead.get('company_name', '').strip().lower()
+    if company_key in ch_data:
+        ch_info = ch_data[company_key]
+        if not lead.get('principal_name', '').strip():
+            lead['principal_name'] = ch_info.get('principal_name', '')
+        if not lead.get('principal_email_guess', '').strip():
+            lead['principal_email_guess'] = ch_info.get('principal_email_guess', '')
+
     principal = lead.get('principal_name', '').strip()
-    principal_validity = is_valid_name(principal) if principal else 'missing'
-    if principal_validity != 'valid':
-        lead['principal_name'] = ''
+    if principal:
+        p_validity = is_valid_name(principal)
+        if p_validity == 'invalid':
+            lead['principal_name'] = ''
+            lead['principal_email_guess'] = ''
 
     contact_name = lead.get('contact_name', '').strip()
-    contact_validity = is_valid_name(contact_name) if contact_name else 'missing'
+    if contact_name:
+        contact_name = strip_job_titles(contact_name)
+        lead['contact_name'] = contact_name
 
-    if contact_validity == 'valid':
-        lead['contact_name_validity'] = 'valid'
-    else:
+    contact_validity = is_valid_name(contact_name) if contact_name else 'invalid'
+
+    if contact_validity != 'valid':
         contact_names = lead.get('contact_names', '').strip()
-        found_valid = False
         if contact_names:
             for cn in contact_names.replace('|', ';').split(';'):
                 cn = cn.strip()
-                if cn and is_valid_name(cn) == 'valid':
-                    lead['contact_name'] = cn
-                    lead['contact_name_validity'] = 'valid'
-                    found_valid = True
-                    break
-        if not found_valid:
-            if not contact_name:
-                lead['contact_name_validity'] = 'missing'
-            else:
-                lead['contact_name_validity'] = 'suspicious'
+                if cn:
+                    cn_clean = strip_job_titles(cn)
+                    if is_valid_name(cn_clean) == 'valid':
+                        lead['contact_name'] = cn_clean
+                        contact_validity = 'valid'
+                        break
 
-    domain = extract_domain(website) if has_website else ''
+    lead['name_review_needed'] = ''
+    if contact_validity == 'review':
+        lead['name_review_needed'] = 'True'
+    elif contact_validity == 'invalid' and contact_name:
+        lead['name_review_needed'] = 'True'
 
-    valid_principal = lead.get('principal_name', '').strip()
-    if valid_principal and domain:
-        from src.utils import generate_email_guesses as gen_guesses
-        p_guesses = gen_guesses(valid_principal, domain)
-        if p_guesses:
-            lead['principal_email_guess'] = p_guesses[0]
+    domain = extract_domain(website) if has_real_website else ''
 
     existing_email = lead.get('email', '').strip()
     existing_generic = lead.get('generic_email', '').strip()
@@ -410,65 +423,62 @@ def process_lead(lead: dict) -> dict:
             lead['email'] = ''
             existing_email = ''
 
+    lead['contact_email'] = existing_email
+
+    if not existing_generic and domain:
+        lead['generic_email'] = f"info@{domain}"
+
     best_contact = lead.get('contact_name', '').strip()
-    if lead.get('contact_name_validity') == 'valid' and best_contact and domain:
+    if contact_validity in ('valid', 'review') and best_contact and domain:
         guesses = generate_email_guesses(best_contact, domain)
         if guesses:
-            lead['guessed_personal_emails'] = ' | '.join(guesses)
             lead['personal_email_guesses'] = ' | '.join(guesses)
-    elif not lead.get('guessed_personal_emails', '').strip():
-        existing_guesses = lead.get('personal_email_guesses', '').strip()
-        if existing_guesses:
-            lead['guessed_personal_emails'] = existing_guesses.replace('; ', ' | ')
+    elif not lead.get('personal_email_guesses', '').strip():
+        if lead.get('guessed_personal_emails', '').strip():
+            lead['personal_email_guesses'] = lead['guessed_personal_emails'].replace('; ', ' | ')
 
-    final_email = lead.get('email', '').strip()
+    contact_names_str = lead.get('contact_names', '').strip()
+    if contact_names_str and domain:
+        team_guesses = generate_team_email_guesses(contact_names_str, domain, exclude_name=best_contact)
+        lead['team_email_guesses'] = team_guesses
+
+    personal_guesses, principal_guess = deduplicate_email_guesses(
+        lead.get('contact_name', ''),
+        lead.get('principal_name', ''),
+        lead.get('personal_email_guesses', ''),
+        lead.get('principal_email_guess', '')
+    )
+    lead['personal_email_guesses'] = personal_guesses
+    lead['principal_email_guess'] = principal_guess
+
+    final_contact_email = lead.get('contact_email', '').strip()
     final_generic = lead.get('generic_email', '').strip()
-    final_guesses = lead.get('guessed_personal_emails', '').strip()
+    final_personal = lead.get('personal_email_guesses', '').strip()
 
-    if final_email and classify_email(final_email) == 'personal':
+    if final_contact_email and classify_email(final_contact_email) == 'personal':
         lead['email_type'] = 'both' if final_generic else 'personal'
     elif final_generic:
-        lead['email_type'] = 'both' if final_guesses else 'generic'
-    elif final_guesses:
+        lead['email_type'] = 'both' if final_personal else 'generic'
+    elif final_personal:
         lead['email_type'] = 'personal'
     else:
         lead['email_type'] = ''
+
+    has_any_email = bool(final_contact_email or final_generic or final_personal or
+                         lead.get('principal_email_guess', '').strip() or
+                         lead.get('team_email_guesses', '').strip())
+    lead['missing_email'] = '' if has_any_email else 'True'
 
     lead['data_score'] = compute_data_score(lead)
 
     return lead
 
 
-def classify_lead(lead: dict) -> tuple:
-    """Returns (is_enriched: bool, exclude_reasons: list)."""
-    exclude_reasons = []
-
-    if lead.get('website_verified') == 'no':
-        exclude_reasons.append('no web presence')
-
-    validity = lead.get('contact_name_validity', 'missing')
-    if validity == 'missing':
-        if lead.get('contact_name', '').strip():
-            exclude_reasons.append('fake name')
-        else:
-            exclude_reasons.append('no contact')
-    elif validity == 'suspicious':
-        exclude_reasons.append('fake name')
-
-    has_any_email = bool(
-        lead.get('email', '').strip() or
-        lead.get('generic_email', '').strip() or
-        lead.get('guessed_personal_emails', '').strip()
-    )
-    if not has_any_email:
-        exclude_reasons.append('no email')
-
-    return (len(exclude_reasons) == 0, exclude_reasons)
-
-
 def refine_leads(skip_re_enrich=False, re_enrich_limit=50):
     print("=" * 60)
-    print("LEAD DATA REFINEMENT (Production-Ready)")
+    print("LEAD DATA REFINEMENT v2")
+    print("  Exclusion: no website AND no Facebook only")
+    print("  Flags: name_review_needed, missing_email")
     print("=" * 60)
 
     with open(INPUT_FILE, newline='', encoding='utf-8') as f:
@@ -481,117 +491,75 @@ def refine_leads(skip_re_enrich=False, re_enrich_limit=50):
     print(f"Unit 8 leads to process: {len(unit8_leads)}")
     print(f"Other leads (kept as-is): {len(other_leads)}")
 
-    print(f"\nStep 1: Initial validation pass...")
-    for i, lead in enumerate(unit8_leads):
-        if (i + 1) % 100 == 0:
-            print(f"  Processing {i + 1}/{len(unit8_leads)}...")
-        process_lead(lead)
+    print(f"\nStep 1: Loading existing CH director data...")
+    ch_data = load_ch_data()
+    print(f"  Loaded {len(ch_data)} CH director records")
 
-    print(f"\nStep 2: Deduplication (after validation)...")
+    print(f"\nStep 2: Deduplication...")
     before_dedup = len(unit8_leads)
     unit8_leads = deduplicate_leads(unit8_leads)
     print(f"  {before_dedup} -> {len(unit8_leads)} ({before_dedup - len(unit8_leads)} duplicates removed)")
 
+    print(f"\nStep 3: Processing leads (validation, emails, flags)...")
     enriched = []
-    weak_leads = []
     excluded = []
 
-    for lead in unit8_leads:
-        is_good, reasons = classify_lead(lead)
-        if is_good:
-            enriched.append(lead)
+    for i, lead in enumerate(unit8_leads):
+        if (i + 1) % 200 == 0:
+            print(f"  Processing {i + 1}/{len(unit8_leads)}...")
+
+        process_lead(lead, ch_data)
+
+        website = lead.get('website', '').strip()
+        has_website = bool(website) and not is_social_media_url(website)
+        has_facebook = is_facebook_url(website) or bool(lead.get('facebook_url', '').strip())
+
+        if not has_website and not has_facebook:
+            lead['excluded_reason'] = 'no website and no Facebook page'
+            lead['archived'] = 'TRUE'
+            excluded.append(lead)
         else:
-            has_website = lead.get('website_verified') in ('yes', 'facebook')
-            only_missing_contact_or_email = all(r in ('no contact', 'fake name', 'no email') for r in reasons)
-            if has_website and only_missing_contact_or_email:
-                weak_leads.append(lead)
-            else:
-                lead['excluded_reason'] = ' | '.join(reasons)
-                lead['archived'] = 'TRUE'
-                lead['included_in_export'] = 'no'
-                excluded.append(lead)
-
-    print(f"\n  Initial pass: {len(enriched)} enriched, {len(weak_leads)} weak (re-enrichable), {len(excluded)} excluded")
-
-    if weak_leads and not skip_re_enrich:
-        print(f"\nStep 3: Re-enrichment of {len(weak_leads)} weak records (limit: {re_enrich_limit})...")
-        re_enriched = attempt_re_enrichment(weak_leads, max_records=re_enrich_limit)
-
-        for lead in re_enriched:
-            process_lead(lead)
-            is_good, reasons = classify_lead(lead)
-            if is_good:
-                enriched.append(lead)
-            else:
-                lead['excluded_reason'] = ' | '.join(reasons)
-                lead['archived'] = 'TRUE'
-                lead['included_in_export'] = 'no'
-                excluded.append(lead)
-
-        print(f"  After re-enrichment: {len(enriched)} enriched, {len(excluded)} excluded")
-    elif weak_leads and skip_re_enrich:
-        print(f"\nStep 3: Skipping re-enrichment ({len(weak_leads)} weak records)")
-        for lead in weak_leads:
-            is_good, reasons = classify_lead(lead)
-            if is_good:
-                enriched.append(lead)
-            else:
-                lead['excluded_reason'] = ' | '.join(reasons)
-                lead['archived'] = 'TRUE'
-                lead['included_in_export'] = 'no'
-                excluded.append(lead)
-    else:
-        print(f"\nStep 3: No weak records to re-enrich")
-
-    print(f"\nStep 4: Final validation gate...")
-    final_enriched = []
-    for lead in enriched:
-        has_name = lead.get('contact_name_validity') == 'valid'
-        has_web = lead.get('website_verified') != 'no'
-        has_email = bool(
-            lead.get('email', '').strip() or
-            lead.get('generic_email', '').strip() or
-            lead.get('guessed_personal_emails', '').strip()
-        )
-
-        if has_name and has_web and has_email:
             lead['excluded_reason'] = ''
             lead['archived'] = 'FALSE'
-            lead['included_in_export'] = 'yes'
-            if lead['data_score'] == 'low':
-                lead['data_score'] = 'medium'
-            final_enriched.append(lead)
-        else:
-            fail_reasons = []
-            if not has_name:
-                fail_reasons.append('no contact')
-            if not has_web:
-                fail_reasons.append('no web presence')
-            if not has_email:
-                fail_reasons.append('no email')
-            lead['excluded_reason'] = ' | '.join(fail_reasons)
-            lead['archived'] = 'TRUE'
-            lead['included_in_export'] = 'no'
-            excluded.append(lead)
+            enriched.append(lead)
 
-    moved = len(enriched) - len(final_enriched)
-    if moved > 0:
-        print(f"  Moved {moved} leads from enriched to excluded (failed final gate)")
-    enriched = final_enriched
+    print(f"  Enriched: {len(enriched)}")
+    print(f"  Excluded (no web presence at all): {len(excluded)}")
+
+    print(f"\nStep 4: Summary statistics...")
+    review_needed = sum(1 for r in enriched if r.get('name_review_needed') == 'True')
+    missing_email = sum(1 for r in enriched if r.get('missing_email') == 'True')
+    has_principal = sum(1 for r in enriched if r.get('principal_name', '').strip())
+    has_contact = sum(1 for r in enriched if is_valid_name(r.get('contact_name', '')) == 'valid')
+    has_team_guesses = sum(1 for r in enriched if r.get('team_email_guesses', '').strip())
+    has_personal = sum(1 for r in enriched if r.get('personal_email_guesses', '').strip())
+    has_generic = sum(1 for r in enriched if r.get('generic_email', '').strip())
+    high = sum(1 for r in enriched if r.get('data_score') == 'high')
+    medium = sum(1 for r in enriched if r.get('data_score') == 'medium')
+    low = sum(1 for r in enriched if r.get('data_score') == 'low')
+
+    print(f"  Flags: {review_needed} name_review_needed, {missing_email} missing_email")
+    print(f"  Contacts: {has_contact} valid contacts, {has_principal} CH directors")
+    print(f"  Emails: {has_personal} personal guesses, {has_generic} generic, {has_team_guesses} team guesses")
+    print(f"  Scores: {high} high, {medium} medium, {low} low")
 
     enriched_fields = [
-        'company_name', 'sector', 'location', 'website', 'website_verified',
+        'company_name', 'website', 'website_verified', 'facebook_url',
+        'contact_name', 'contact_names',
+        'contact_email', 'personal_email_guesses', 'team_email_guesses',
         'principal_name', 'principal_email_guess',
-        'contact_name', 'contact_name_validity',
-        'contact_names', 'contact_titles',
-        'generic_email', 'email', 'guessed_personal_emails', 'email_type',
-        'phone', 'linkedin', 'ai_score', 'ai_reason', 'tag', 'google_rating',
-        'data_score', 'archived', 'category', 'place_id', 'search_town',
-        'enrichment_source', 'enrichment_status', 'email_guessed',
-        'contact_verified', 'multiple_contacts'
+        'generic_email', 'email_type',
+        'name_review_needed', 'missing_email',
+        'data_score',
+        'sector', 'location', 'phone', 'linkedin',
+        'ai_score', 'ai_reason', 'tag', 'google_rating',
+        'category', 'place_id', 'search_town',
+        'enrichment_source', 'enrichment_status',
+        'email_guessed', 'contact_verified', 'multiple_contacts',
+        'contact_titles', 'archived'
     ]
 
-    excluded_fields = enriched_fields + ['excluded_reason', 'included_in_export']
+    excluded_fields = enriched_fields + ['excluded_reason']
 
     with open(ENRICHED_OUTPUT, 'w', newline='', encoding='utf-8') as f:
         writer = csv.DictWriter(f, fieldnames=enriched_fields, extrasaction='ignore')
@@ -608,48 +576,16 @@ def refine_leads(skip_re_enrich=False, re_enrich_limit=50):
     print("=" * 60)
     print(f"\nEnriched leads: {len(enriched)} -> {ENRICHED_OUTPUT}")
     print(f"Excluded leads: {len(excluded)} -> {EXCLUDED_OUTPUT}")
-
-    high = sum(1 for r in enriched if r.get('data_score') == 'high')
-    medium = sum(1 for r in enriched if r.get('data_score') == 'medium')
-    low = sum(1 for r in enriched if r.get('data_score') == 'low')
-    print(f"\nData quality: {high} high, {medium} medium, {low} low")
-
-    with_principal = sum(1 for r in enriched if r.get('principal_name'))
-    with_contact = sum(1 for r in enriched if r.get('contact_name_validity') == 'valid')
-    with_personal = sum(1 for r in enriched if r.get('email') and classify_email(r['email']) == 'personal')
-    with_generic = sum(1 for r in enriched if r.get('generic_email'))
-    with_guesses = sum(1 for r in enriched if r.get('guessed_personal_emails'))
-    verified_web = sum(1 for r in enriched if r.get('website_verified') == 'yes')
-    with_principal_email = sum(1 for r in enriched if r.get('principal_email_guess'))
-
-    print(f"\nEnriched breakdown:")
-    print(f"  CH director (principal):  {with_principal}")
-    print(f"  Principal email guess:    {with_principal_email}")
-    print(f"  Website contact (valid):  {with_contact}")
-    print(f"  With personal email:      {with_personal}")
-    print(f"  With generic email:       {with_generic}")
-    print(f"  With email guesses:       {with_guesses}")
-    print(f"  Website verified:         {verified_web}")
-
-    reason_counts = {}
-    for r in excluded:
-        for reason in r.get('excluded_reason', '').split(' | '):
-            reason = reason.strip()
-            if reason:
-                reason_counts[reason] = reason_counts.get(reason, 0) + 1
-
-    print(f"\nExclusion reasons:")
-    for reason, count in sorted(reason_counts.items(), key=lambda x: -x[1]):
-        print(f"  {reason}: {count}")
+    print(f"\nNext step: Run ch_enrich.py to populate principal_name/principal_email_guess")
 
 
 if __name__ == "__main__":
-    import argparse
-    parser = argparse.ArgumentParser(description='Refine lead data')
-    parser.add_argument('--skip-re-enrich', action='store_true',
-                        help='Skip re-enrichment of weak records (faster)')
-    parser.add_argument('--re-enrich-limit', type=int, default=50,
-                        help='Max records to re-enrich (default: 50)')
-    args = parser.parse_args()
-    refine_leads(skip_re_enrich=args.skip_re_enrich,
-                 re_enrich_limit=args.re_enrich_limit)
+    skip = '--skip-re-enrich' in sys.argv
+    limit = 50
+    for arg in sys.argv:
+        if arg.startswith('--re-enrich-limit='):
+            try:
+                limit = int(arg.split('=')[1])
+            except:
+                pass
+    refine_leads(skip_re_enrich=skip, re_enrich_limit=limit)

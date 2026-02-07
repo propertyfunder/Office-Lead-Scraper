@@ -176,7 +176,20 @@
         .score-medium { background: #fef3c7; color: #92400e; }
         .score-low { background: #fee2e2; color: #991b1b; }
         
-        .category-badge {
+        .flag {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 0.7rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        .flag-review { background: #fef3c7; color: #92400e; }
+        .flag-missing { background: #fee2e2; color: #991b1b; }
+        .flag-ok { background: #d1fae5; color: #065f46; }
+        .flag-fb { background: #dbeafe; color: #1e40af; }
+        
+        .data-score-badge {
             display: inline-block;
             padding: 3px 8px;
             border-radius: 4px;
@@ -184,9 +197,9 @@
             font-weight: 600;
             text-transform: uppercase;
         }
-        
-        .category-unit8 { background: #dbeafe; color: #1e40af; }
-        .category-office { background: #e0e7ff; color: #3730a3; }
+        .ds-high { background: #d1fae5; color: #065f46; }
+        .ds-medium { background: #fef3c7; color: #92400e; }
+        .ds-low { background: #fee2e2; color: #991b1b; }
         
         .empty-state {
             text-align: center;
@@ -198,7 +211,7 @@
         
         @media (max-width: 768px) {
             .table-wrapper { overflow-x: auto; }
-            table { min-width: 800px; }
+            table { min-width: 900px; }
         }
     </style>
 </head>
@@ -244,12 +257,12 @@
             <h3 style="margin-bottom:15px; color:#1e293b;">Refined Data Downloads</h3>
             <div id="refinement-info" style="display:flex; gap:20px; flex-wrap:wrap; align-items:center;">
                 <div style="flex:1; min-width:200px;">
-                    <p style="color:#64748b; margin-bottom:8px;">Validated leads with CH directors, website team contacts, verified websites, and classified emails.</p>
+                    <p style="color:#64748b; margin-bottom:8px;">Enriched leads with CH directors, website team contacts, email guesses, and review flags.</p>
                     <div id="refinement-stats" style="font-size:0.85rem; color:#64748b;"></div>
                 </div>
                 <div style="display:flex; gap:10px; flex-wrap:wrap;">
                     <a href="/api/download/enriched" class="btn btn-success" style="text-decoration:none;">Download Enriched</a>
-                    <a href="/api/download/excluded" class="btn btn-secondary" style="text-decoration:none;">Download Archived</a>
+                    <a href="/api/download/excluded" class="btn btn-secondary" style="text-decoration:none;">Download Excluded</a>
                 </div>
             </div>
         </div>
@@ -267,8 +280,8 @@
                     <div class="label">Total Leads</div>
                 </div>
                 <div class="stat-card">
-                    <div class="number">{{ unit8_stats.enriched_complete }}</div>
-                    <div class="label">Complete</div>
+                    <div class="number">{{ unit8_stats.with_website }}</div>
+                    <div class="label">With Website</div>
                 </div>
                 <div class="stat-card">
                     <div class="number">{{ unit8_stats.with_email }}</div>
@@ -296,25 +309,9 @@
                     <option value="7">7+ Score</option>
                     <option value="5">5+ Score</option>
                 </select>
-                <select id="unit8-status">
-                    <option value="">All Status</option>
-                    <option value="complete">Complete</option>
-                    <option value="incomplete">Incomplete</option>
-                    <option value="missing_email">Missing Email</option>
-                    <option value="missing_name">Missing Name</option>
-                </select>
-                <select id="unit8-source">
-                    <option value="">All Sources</option>
-                    <option value="website">Website</option>
-                    <option value="companies_house">Companies House</option>
-                    <option value="linkedin">LinkedIn</option>
-                    <option value="openai">OpenAI</option>
-                    <option value="guessed_email">Guessed Email</option>
-                    <option value="not_found">Not Found</option>
-                </select>
                 <button class="btn" onclick="filterLeads('unit8')">Filter</button>
                 <button class="btn btn-secondary" onclick="resetFilter('unit8')">Reset</button>
-                <button class="btn btn-success" onclick="downloadCSV('unit8')">Download Unit 8 Leads</button>
+                <button class="btn btn-success" onclick="downloadCSV('unit8')">Download Unit 8</button>
             </div>
             
             <div class="table-wrapper">
@@ -323,39 +320,60 @@
                     <thead>
                         <tr>
                             <th>Business</th>
-                            <th>Category</th>
                             <th>Location</th>
-                            <th>Website</th>
-                            <th>Contact(s)</th>
-                            <th>Email(s)</th>
+                            <th>Web</th>
+                            <th>Contact / Principal</th>
+                            <th>Emails</th>
+                            <th>Flags</th>
                             <th>Score</th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for lead in unit8_leads %}
                         <tr>
-                            <td class="company-name">{{ lead.company_name }}</td>
-                            <td>{{ lead.sector or '-' }}</td>
+                            <td>
+                                <div class="company-name">{{ lead.company_name }}</div>
+                                <div class="contact-info">{{ lead.sector or '' }}</div>
+                            </td>
                             <td class="location">{{ lead.location or '-' }}</td>
                             <td class="contact-info">
-                                {% if lead.website %}<a href="{{ lead.website }}" target="_blank">{{ lead.website[:35] }}{% if lead.website|length > 35 %}...{% endif %}</a>{% else %}-{% endif %}
+                                {% if lead.website and 'facebook.com' not in lead.website and 'fb.com' not in lead.website %}
+                                    <a href="{{ lead.website }}" target="_blank">{{ lead.website[:30] }}{% if lead.website|length > 30 %}...{% endif %}</a>
+                                {% elif lead.website %}
+                                    <span class="flag flag-fb">FB</span>
+                                {% else %}-{% endif %}
                             </td>
                             <td>
-                                {{ lead.contact_name or '-' }}
-                                {% if lead.contact_titles %}<br><span class="contact-info">{{ lead.contact_titles }}</span>{% endif %}
-                                {% if lead.multiple_contacts == 'TRUE' and lead.contact_names %}
-                                <br><span class="contact-info" style="color:#6366f1;" title="{{ lead.contact_names }}">+{{ lead.contact_names.split(';')|length - 1 }} more</span>
+                                {% if lead.contact_name %}
+                                    <strong>{{ lead.contact_name }}</strong>
+                                {% else %}
+                                    <span style="color:#94a3b8;">No contact</span>
+                                {% endif %}
+                                {% if lead.principal_name and lead.principal_name != lead.contact_name %}
+                                    <br><span class="contact-info">CH: {{ lead.principal_name }}</span>
+                                {% endif %}
+                                {% if lead.contact_names and ';' in lead.contact_names %}
+                                    <br><span class="contact-info" style="color:#6366f1;" title="{{ lead.contact_names }}">+{{ lead.contact_names.split(';')|length - 1 }} team</span>
                                 {% endif %}
                             </td>
                             <td class="contact-info">
-                                {% if lead.email %}{{ lead.email }}{% if lead.email_guessed == 'true' %} <span style="color:#f59e0b;" title="Guessed format">(g)</span>{% endif %}{% endif %}
-                                {% if lead.generic_email %}<br><span style="color:#94a3b8;">{{ lead.generic_email }}</span>{% endif %}
-                                {% if lead.personal_email_guesses %}<br><span style="color:#6366f1;cursor:pointer;" title="{{ lead.personal_email_guesses }}">{{ lead.personal_email_guesses.split(';')|length }} guesses</span>{% endif %}
-                                {% if not lead.email and not lead.generic_email and not lead.personal_email_guesses %}-{% endif %}
+                                {% if lead.contact_email or lead.email %}{{ lead.contact_email or lead.email }}<br>{% endif %}
+                                {% if lead.generic_email %}<span style="color:#94a3b8;">{{ lead.generic_email }}</span><br>{% endif %}
+                                {% if lead.personal_email_guesses %}<span style="color:#6366f1;cursor:pointer;" title="{{ lead.personal_email_guesses }}">{{ lead.personal_email_guesses.split(' | ')|length }} guesses</span><br>{% endif %}
+                                {% if lead.team_email_guesses %}<span style="color:#8b5cf6;cursor:pointer;" title="{{ lead.team_email_guesses }}">team guesses</span><br>{% endif %}
+                                {% if lead.principal_email_guess %}<span style="color:#059669;">CH: {{ lead.principal_email_guess }}</span>{% endif %}
+                                {% if not lead.contact_email and not lead.email and not lead.generic_email and not lead.personal_email_guesses and not lead.principal_email_guess %}-{% endif %}
+                            </td>
+                            <td>
+                                {% if lead.name_review_needed == 'True' %}<span class="flag flag-review">review name</span><br>{% endif %}
+                                {% if lead.missing_email == 'True' %}<span class="flag flag-missing">no email</span><br>{% endif %}
+                                {% if lead.data_score %}
+                                    <span class="data-score-badge ds-{{ lead.data_score }}">{{ lead.data_score }}</span>
+                                {% endif %}
                             </td>
                             <td>
                                 {% if lead.ai_score %}
-                                <span class="score {% if lead.ai_score|int >= 8 %}score-high{% elif lead.ai_score|int >= 5 %}score-medium{% else %}score-low{% endif %}">{{ lead.ai_score }}</span>
+                                <span class="score {% if lead.ai_score|int >= 8 %}score-high{% elif lead.ai_score|int >= 5 %}score-medium{% else %}score-low{% endif %}" title="{{ lead.ai_reason or '' }}">{{ lead.ai_score }}</span>
                                 {% else %}-{% endif %}
                             </td>
                         </tr>
@@ -379,8 +397,8 @@
                     <div class="label">Total Leads</div>
                 </div>
                 <div class="stat-card">
-                    <div class="number">{{ office_stats.enriched_complete }}</div>
-                    <div class="label">Complete</div>
+                    <div class="number">{{ office_stats.with_website }}</div>
+                    <div class="label">With Website</div>
                 </div>
                 <div class="stat-card">
                     <div class="number">{{ office_stats.with_email }}</div>
@@ -408,25 +426,9 @@
                     <option value="7">7+ Score</option>
                     <option value="5">5+ Score</option>
                 </select>
-                <select id="office-status">
-                    <option value="">All Status</option>
-                    <option value="complete">Complete</option>
-                    <option value="incomplete">Incomplete</option>
-                    <option value="missing_email">Missing Email</option>
-                    <option value="missing_name">Missing Name</option>
-                </select>
-                <select id="office-source">
-                    <option value="">All Sources</option>
-                    <option value="website">Website</option>
-                    <option value="companies_house">Companies House</option>
-                    <option value="linkedin">LinkedIn</option>
-                    <option value="openai">OpenAI</option>
-                    <option value="guessed_email">Guessed Email</option>
-                    <option value="not_found">Not Found</option>
-                </select>
                 <button class="btn" onclick="filterLeads('office')">Filter</button>
                 <button class="btn btn-secondary" onclick="resetFilter('office')">Reset</button>
-                <button class="btn btn-success" onclick="downloadCSV('office')">Download Office Leads</button>
+                <button class="btn btn-success" onclick="downloadCSV('office')">Download Office</button>
             </div>
             
             <div class="table-wrapper">
@@ -435,35 +437,37 @@
                     <thead>
                         <tr>
                             <th>Business</th>
-                            <th>Category</th>
                             <th>Location</th>
-                            <th>Website</th>
-                            <th>Contact(s)</th>
-                            <th>Email(s)</th>
+                            <th>Web</th>
+                            <th>Contact / Principal</th>
+                            <th>Emails</th>
+                            <th>Flags</th>
                             <th>Score</th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for lead in office_leads %}
                         <tr>
-                            <td class="company-name">{{ lead.company_name }}</td>
-                            <td>{{ lead.sector or '-' }}</td>
+                            <td>
+                                <div class="company-name">{{ lead.company_name }}</div>
+                                <div class="contact-info">{{ lead.sector or '' }}</div>
+                            </td>
                             <td class="location">{{ lead.location or '-' }}</td>
                             <td class="contact-info">
-                                {% if lead.website %}<a href="{{ lead.website }}" target="_blank">{{ lead.website[:35] }}{% if lead.website|length > 35 %}...{% endif %}</a>{% else %}-{% endif %}
+                                {% if lead.website %}<a href="{{ lead.website }}" target="_blank">{{ lead.website[:30] }}{% if lead.website|length > 30 %}...{% endif %}</a>{% else %}-{% endif %}
                             </td>
                             <td>
-                                {{ lead.contact_name or '-' }}
-                                {% if lead.contact_titles %}<br><span class="contact-info">{{ lead.contact_titles }}</span>{% endif %}
-                                {% if lead.multiple_contacts == 'TRUE' and lead.contact_names %}
-                                <br><span class="contact-info" style="color:#6366f1;" title="{{ lead.contact_names }}">+{{ lead.contact_names.split(';')|length - 1 }} more</span>
-                                {% endif %}
+                                {% if lead.contact_name %}<strong>{{ lead.contact_name }}</strong>{% else %}<span style="color:#94a3b8;">No contact</span>{% endif %}
+                                {% if lead.principal_name and lead.principal_name != lead.contact_name %}<br><span class="contact-info">CH: {{ lead.principal_name }}</span>{% endif %}
                             </td>
                             <td class="contact-info">
-                                {% if lead.email %}{{ lead.email }}{% if lead.email_guessed == 'true' %} <span style="color:#f59e0b;" title="Guessed format">(g)</span>{% endif %}{% endif %}
-                                {% if lead.generic_email %}<br><span style="color:#94a3b8;">{{ lead.generic_email }}</span>{% endif %}
-                                {% if lead.personal_email_guesses %}<br><span style="color:#6366f1;cursor:pointer;" title="{{ lead.personal_email_guesses }}">{{ lead.personal_email_guesses.split(';')|length }} guesses</span>{% endif %}
-                                {% if not lead.email and not lead.generic_email and not lead.personal_email_guesses %}-{% endif %}
+                                {% if lead.contact_email or lead.email %}{{ lead.contact_email or lead.email }}<br>{% endif %}
+                                {% if lead.generic_email %}<span style="color:#94a3b8;">{{ lead.generic_email }}</span>{% endif %}
+                                {% if not lead.contact_email and not lead.email and not lead.generic_email %}-{% endif %}
+                            </td>
+                            <td>
+                                {% if lead.name_review_needed == 'True' %}<span class="flag flag-review">review</span><br>{% endif %}
+                                {% if lead.missing_email == 'True' %}<span class="flag flag-missing">no email</span>{% endif %}
                             </td>
                             <td>
                                 {% if lead.ai_score %}
@@ -496,15 +500,11 @@
         function filterLeads(category) {
             const search = document.getElementById(category + '-search').value;
             const minScore = document.getElementById(category + '-score').value;
-            const status = document.getElementById(category + '-status')?.value || '';
-            const source = document.getElementById(category + '-source')?.value || '';
             
             const params = new URLSearchParams();
             params.set('category', category);
             if (search) params.set('search', search);
             if (minScore) params.set('min_score', minScore);
-            if (status) params.set('status', status);
-            if (source) params.set('source', source);
             
             fetch('/api/leads?' + params.toString())
                 .then(r => r.json())
@@ -514,64 +514,63 @@
         function resetFilter(category) {
             document.getElementById(category + '-search').value = '';
             document.getElementById(category + '-score').value = '';
-            const statusEl = document.getElementById(category + '-status');
-            const sourceEl = document.getElementById(category + '-source');
-            if (statusEl) statusEl.value = '';
-            if (sourceEl) sourceEl.value = '';
             location.reload();
         }
         
         function downloadCSV(category) {
             const minScore = document.getElementById(category + '-score').value;
-            const status = document.getElementById(category + '-status')?.value || '';
-            const source = document.getElementById(category + '-source')?.value || '';
-            
-            const params = new URLSearchParams();
-            if (minScore) params.set('min_score', minScore);
-            if (status) params.set('status', status);
-            if (source) params.set('source', source);
-            
-            const queryString = params.toString();
-            window.location.href = '/api/download/' + category + (queryString ? '?' + queryString : '');
+            let url = '/api/download/' + category;
+            if (minScore) url += '?min_score=' + minScore;
+            window.location = url;
         }
         
         function updateTable(category, leads) {
             const tbody = document.querySelector('#' + category + '-table tbody');
             if (!tbody) return;
-            
-            if (leads.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;">No leads match your filters</td></tr>';
-                return;
-            }
-            
             tbody.innerHTML = leads.map(lead => {
-                let contactHtml = lead.contact_name || '-';
-                if (lead.contact_titles) contactHtml += `<br><span class="contact-info">${lead.contact_titles}</span>`;
-                if (lead.multiple_contacts === 'TRUE' && lead.contact_names) {
-                    const extra = lead.contact_names.split(';').length - 1;
-                    if (extra > 0) contactHtml += `<br><span class="contact-info" style="color:#6366f1;" title="${lead.contact_names}">+${extra} more</span>`;
+                const aiScore = lead.ai_score || '';
+                const scoreClass = parseInt(aiScore) >= 8 ? 'score-high' : parseInt(aiScore) >= 5 ? 'score-medium' : 'score-low';
+                const contactEmail = lead.contact_email || lead.email || '';
+                const website = lead.website || '';
+                const isFB = website.includes('facebook.com') || website.includes('fb.com');
+
+                let webCell = '-';
+                if (website && !isFB) {
+                    webCell = `<a href="${website}" target="_blank">${website.substring(0,30)}${website.length > 30 ? '...' : ''}</a>`;
+                } else if (isFB) {
+                    webCell = '<span class="flag flag-fb">FB</span>';
                 }
-                let emailHtml = '';
-                if (lead.email) emailHtml += lead.email + (lead.email_guessed === 'true' ? ' <span style="color:#f59e0b;" title="Guessed format">(g)</span>' : '');
-                if (lead.generic_email) emailHtml += `<br><span style="color:#94a3b8;">${lead.generic_email}</span>`;
-                if (lead.personal_email_guesses) {
-                    const count = lead.personal_email_guesses.split(';').length;
-                    emailHtml += `<br><span style="color:#6366f1;cursor:pointer;" title="${lead.personal_email_guesses}">${count} guesses</span>`;
+
+                let contactCell = '';
+                if (lead.contact_name) {
+                    contactCell = `<strong>${lead.contact_name}</strong>`;
+                } else {
+                    contactCell = '<span style="color:#94a3b8;">No contact</span>';
                 }
-                if (!emailHtml) emailHtml = '-';
-                return `
-                <tr>
-                    <td class="company-name">${lead.company_name || ''}</td>
-                    <td>${lead.sector || '-'}</td>
+                if (lead.principal_name && lead.principal_name !== lead.contact_name) {
+                    contactCell += `<br><span class="contact-info">CH: ${lead.principal_name}</span>`;
+                }
+
+                let emailCell = '';
+                if (contactEmail) emailCell += contactEmail + '<br>';
+                if (lead.generic_email) emailCell += `<span style="color:#94a3b8;">${lead.generic_email}</span><br>`;
+                if (lead.personal_email_guesses) emailCell += `<span style="color:#6366f1;" title="${lead.personal_email_guesses}">${lead.personal_email_guesses.split(' | ').length} guesses</span><br>`;
+                if (lead.principal_email_guess) emailCell += `<span style="color:#059669;">CH: ${lead.principal_email_guess}</span>`;
+                if (!emailCell) emailCell = '-';
+
+                let flagCell = '';
+                if (lead.name_review_needed === 'True') flagCell += '<span class="flag flag-review">review name</span><br>';
+                if (lead.missing_email === 'True') flagCell += '<span class="flag flag-missing">no email</span><br>';
+                if (lead.data_score) flagCell += `<span class="data-score-badge ds-${lead.data_score}">${lead.data_score}</span>`;
+
+                return `<tr>
+                    <td><div class="company-name">${lead.company_name}</div><div class="contact-info">${lead.sector || ''}</div></td>
                     <td class="location">${lead.location || '-'}</td>
-                    <td class="contact-info">
-                        ${lead.website ? `<a href="${lead.website}" target="_blank">${lead.website.substring(0,35)}${lead.website.length > 35 ? '...' : ''}</a>` : '-'}
-                    </td>
-                    <td>${contactHtml}</td>
-                    <td class="contact-info">${emailHtml}</td>
-                    <td>
-                        ${lead.ai_score ? `<span class="score ${parseInt(lead.ai_score) >= 8 ? 'score-high' : parseInt(lead.ai_score) >= 5 ? 'score-medium' : 'score-low'}">${lead.ai_score}</span>` : '-'}
-                    </td>
+                    <td class="contact-info">${webCell}</td>
+                    <td>${contactCell}</td>
+                    <td class="contact-info">${emailCell}</td>
+                    <td>${flagCell}</td>
+                    <td>${aiScore ? `<span class="score ${scoreClass}" title="${lead.ai_reason || ''}">${aiScore}</span>` : '-'}</td>
                 </tr>`;
             }).join('');
         }
@@ -580,35 +579,29 @@
             .then(r => r.json())
             .then(data => {
                 const el = document.getElementById('refinement-stats');
-                if (el && data.enriched) {
-                    let html = `<strong>${data.enriched}</strong> enriched`;
-                    html += ` (${data.high || 0} high, ${data.medium || 0} medium)`;
-                    html += ` &bull; ${data.with_principal || 0} CH directors`;
-                    html += ` &bull; ${data.with_contact || 0} website contacts`;
-                    html += ` &bull; ${data.with_personal_email || 0} personal emails`;
-                    html += ` &bull; ${data.with_generic_email || 0} generic emails`;
-                    html += ` &bull; ${data.with_guesses || 0} with guesses`;
-                    html += `<br><strong>${data.excluded || 0}</strong> archived`;
-                    if (data.exclusion_reasons) {
-                        const reasons = Object.entries(data.exclusion_reasons).map(([k,v]) => `${v} ${k}`).join(', ');
-                        html += ` (${reasons})`;
-                    }
-                    el.innerHTML = html;
-                    const links = document.querySelectorAll('#refinement-info a');
-                    if (links[0]) links[0].textContent = `Download Enriched (${data.enriched})`;
-                    if (links[1]) links[1].textContent = `Download Archived (${data.excluded || 0})`;
+                const dl = document.querySelector('#refinement-info a.btn-success');
+                const dlEx = document.querySelector('#refinement-info a.btn-secondary');
+                
+                if (data.enriched !== undefined) {
+                    let info = `<strong>${data.enriched}</strong> enriched (${data.high || 0} high, ${data.medium || 0} medium, ${data.low || 0} low)`;
+                    info += ` &bull; ${data.with_principal || 0} CH directors`;
+                    info += ` &bull; ${data.with_contact || 0} contacts`;
+                    info += ` &bull; ${data.with_personal_email || 0} personal emails`;
+                    info += ` &bull; ${data.with_generic_email || 0} generic`;
+                    if (data.with_team_guesses) info += ` &bull; ${data.with_team_guesses} team guesses`;
+                    if (data.name_review) info += `<br><span style="color:#92400e;">${data.name_review} need name review</span>`;
+                    if (data.missing_email) info += ` &bull; <span style="color:#991b1b;">${data.missing_email} missing email</span>`;
+                    if (data.facebook_only) info += ` &bull; ${data.facebook_only} Facebook-only`;
+                    el.innerHTML = info;
+                    
+                    if (dl) dl.textContent = `Download Enriched (${data.enriched})`;
                 }
-            })
-            .catch(() => {});
-
-        ['unit8', 'office'].forEach(cat => {
-            const input = document.getElementById(cat + '-search');
-            if (input) {
-                input.addEventListener('keypress', function(e) {
-                    if (e.key === 'Enter') filterLeads(cat);
-                });
-            }
-        });
+                if (data.excluded !== undefined && dlEx) {
+                    dlEx.textContent = `Download Excluded (${data.excluded})`;
+                    let exInfo = `<br>${data.excluded} excluded (no website and no Facebook)`;
+                    el.innerHTML += exInfo;
+                }
+            });
     </script>
 </body>
 </html>

@@ -10,7 +10,7 @@ The user wants to interact with the system via a Command Line Interface (CLI) fo
 The system is built around a modular Python architecture comprising scraping, enrichment, AI scoring, and a web-based dashboard.
 
 **UI/UX Decisions:**
-- **Web Dashboard:** A Flask application provides a web-based dashboard accessible via `app.py`. It features two tabs for lead categorization (Unit 8 Occupiers and Office Occupiers). Users can filter leads by minimum AI score, search by company name, sector, or location, and view aggregated statistics (total leads, emails, contacts, average score). Filtered data can be downloaded as CSV.
+- **Web Dashboard:** A Flask application provides a web-based dashboard accessible via `app.py`. It features two tabs for lead categorization (Unit 8 Occupiers and Office Occupiers). Users can filter leads by minimum AI score, search by company name, sector, or location, and view aggregated statistics (total leads, emails, contacts, average score). Filtered data can be downloaded as CSV. Dashboard shows review flags (name_review_needed, missing_email) and data quality scores.
 - **CLI Interface:** `main.py` serves as the CLI entry point, allowing users to control scraping parameters, target specific towns or sectors, enable wellness mode, and manage output.
 
 **Technical Implementations & Feature Specifications:**
@@ -25,8 +25,17 @@ The system is built around a modular Python architecture comprising scraping, en
     - Performs de-duplication based on company name.
     - Includes multi-contact extraction and multi-format email guessing.
     - Features a robust refinement pipeline (`refine_leads.py`) for deduplication, validation, and re-enrichment, generating `unit8_leads_enriched.csv` and `unit8_leads_excluded.csv`.
+- **Refinement Pipeline v2 (Feb 2026):**
+    - **Exclusion logic:** Only excludes leads with NO website AND NO Facebook page. All other leads go to enriched file with flags.
+    - **Flag-based system:** Uses `name_review_needed` and `missing_email` flags instead of excluding suspect leads.
+    - **Multi-contact team email guesses:** Generates `team_email_guesses` for each person found in `contact_names`.
+    - **Email deduplication:** When `contact_name` matches `principal_name`, email guesses are deduplicated.
+    - **Smart name validation:** Vowel checks, gibberish detection (unusual bigrams/trigrams), job title stripping, repeated character detection.
+    - **Email formats:** firstname.lastname@, f.lastname@, firstname@, initials@, lastname@, firstname_lastname@, firstnamelastname@
+    - **Output columns:** company_name, website, website_verified, facebook_url, contact_name, contact_names, contact_email, personal_email_guesses, team_email_guesses, principal_name, principal_email_guess, generic_email, email_type, name_review_needed, missing_email, data_score, plus metadata fields.
+    - **Two output files only:** `unit8_leads_enriched.csv` (all usable/flagged leads) and `unit8_leads_excluded.csv` (no web presence at all).
 - **AI Lead Scoring:** Utilizes the OpenAI API to provide an AI Score (1-10) indicating the likelihood of needing office space, or suitability for Unit 8 in wellness mode, along with an AI Reason.
-- **Data Model:** `src/models.py` defines the `BusinessLead` dataclass.
+- **Data Model:** `src/models.py` defines the `BusinessLead` dataclass with fields for dual-contact model, flags, and team emails.
 - **Utility Functions:** `src/utils.py` handles requests, CSV operations, and email extraction.
 - **Output Fields:** Generates comprehensive CSV files with fields like Company name, Website, Sector, Contact name, Email address, Phone number, LinkedIn profile, Physical location, Estimated employee count, Source, AI Score, AI Reason, Tag, Google Rating, and Category.
 

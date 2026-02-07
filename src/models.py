@@ -32,6 +32,14 @@ class BusinessLead:
     multiple_contacts: str = ""
     principal_name: str = ""
     principal_email_guess: str = ""
+    facebook_url: str = ""
+    contact_email: str = ""
+    team_email_guesses: str = ""
+    email_type: str = ""
+    name_review_needed: str = ""
+    missing_email: str = ""
+    website_verified: str = ""
+    data_score: str = ""
     
     def to_dict(self) -> dict:
         return asdict(self)
