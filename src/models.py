@@ -30,6 +30,8 @@ class BusinessLead:
     personal_email_guesses: str = ""
     contact_titles: str = ""
     multiple_contacts: str = ""
+    principal_name: str = ""
+    principal_email_guess: str = ""
     
     def to_dict(self) -> dict:
         return asdict(self)
