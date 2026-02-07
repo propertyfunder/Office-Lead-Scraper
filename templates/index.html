@@ -244,7 +244,7 @@
             <h3 style="margin-bottom:15px; color:#1e293b;">Refined Data Downloads</h3>
             <div id="refinement-info" style="display:flex; gap:20px; flex-wrap:wrap; align-items:center;">
                 <div style="flex:1; min-width:200px;">
-                    <p style="color:#64748b; margin-bottom:8px;">Validated leads with principal names, verified websites, and classified emails.</p>
+                    <p style="color:#64748b; margin-bottom:8px;">Validated leads with CH directors, website team contacts, verified websites, and classified emails.</p>
                     <div id="refinement-stats" style="font-size:0.85rem; color:#64748b;"></div>
                 </div>
                 <div style="display:flex; gap:10px; flex-wrap:wrap;">
@@ -583,7 +583,8 @@
                 if (el && data.enriched) {
                     let html = `<strong>${data.enriched}</strong> enriched`;
                     html += ` (${data.high || 0} high, ${data.medium || 0} medium)`;
-                    html += ` &bull; ${data.with_principal || 0} named contacts`;
+                    html += ` &bull; ${data.with_principal || 0} CH directors`;
+                    html += ` &bull; ${data.with_contact || 0} website contacts`;
                     html += ` &bull; ${data.with_personal_email || 0} personal emails`;
                     html += ` &bull; ${data.with_generic_email || 0} generic emails`;
                     html += ` &bull; ${data.with_guesses || 0} with guesses`;

@@ -230,6 +230,8 @@ def row_to_lead(row: dict) -> BusinessLead:
         personal_email_guesses=row.get('personal_email_guesses', ''),
         contact_titles=row.get('contact_titles', ''),
         multiple_contacts=row.get('multiple_contacts', ''),
+        principal_name=row.get('principal_name', ''),
+        principal_email_guess=row.get('principal_email_guess', ''),
     )
 
 
@@ -324,7 +326,8 @@ def attempt_re_enrichment(weak_leads: list, max_records: int = 100) -> list:
             updated_row = lead_to_row(enriched_lead)
             protected_fields = {'ai_score', 'ai_reason', 'google_rating', 'place_id',
                                 'search_town', 'category', 'tag', 'location', 'sector',
-                                'company_name', 'source'}
+                                'company_name', 'source',
+                                'principal_name', 'principal_email_guess'}
             for key, orig_val in row.items():
                 if key in protected_fields and orig_val and not updated_row.get(key):
                     updated_row[key] = orig_val
@@ -340,7 +343,14 @@ def attempt_re_enrichment(weak_leads: list, max_records: int = 100) -> list:
 
 
 def process_lead(lead: dict) -> dict:
-    """Process a single lead: validate name, classify emails, generate guesses."""
+    """Process a single lead: validate names, classify emails, generate guesses.
+    
+    Field meanings:
+      principal_name = Companies House director (official registrant)
+      principal_email_guess = email guess for the CH director
+      contact_name = best website team contact (from team/about pages)
+      contact_names = all website team contacts (semicolon-separated)
+    """
 
     website = lead.get('website', '').strip()
     has_website = bool(website) and not is_social_media_url(website)
@@ -353,11 +363,15 @@ def process_lead(lead: dict) -> dict:
     else:
         lead['website_verified'] = 'no'
 
-    contact_name = lead.get('contact_name', '').strip()
-    validity = is_valid_name(contact_name)
+    principal = lead.get('principal_name', '').strip()
+    principal_validity = is_valid_name(principal) if principal else 'missing'
+    if principal_validity != 'valid':
+        lead['principal_name'] = ''
 
-    if validity == 'valid':
-        lead['principal_name'] = contact_name
+    contact_name = lead.get('contact_name', '').strip()
+    contact_validity = is_valid_name(contact_name) if contact_name else 'missing'
+
+    if contact_validity == 'valid':
         lead['contact_name_validity'] = 'valid'
     else:
         contact_names = lead.get('contact_names', '').strip()
@@ -366,16 +380,24 @@ def process_lead(lead: dict) -> dict:
             for cn in contact_names.replace('|', ';').split(';'):
                 cn = cn.strip()
                 if cn and is_valid_name(cn) == 'valid':
-                    lead['principal_name'] = cn
+                    lead['contact_name'] = cn
                     lead['contact_name_validity'] = 'valid'
                     found_valid = True
                     break
         if not found_valid:
-            lead['principal_name'] = ''
             if not contact_name:
                 lead['contact_name_validity'] = 'missing'
             else:
                 lead['contact_name_validity'] = 'suspicious'
+
+    domain = extract_domain(website) if has_website else ''
+
+    valid_principal = lead.get('principal_name', '').strip()
+    if valid_principal and domain:
+        from src.utils import generate_email_guesses as gen_guesses
+        p_guesses = gen_guesses(valid_principal, domain)
+        if p_guesses:
+            lead['principal_email_guess'] = p_guesses[0]
 
     existing_email = lead.get('email', '').strip()
     existing_generic = lead.get('generic_email', '').strip()
@@ -388,15 +410,13 @@ def process_lead(lead: dict) -> dict:
             lead['email'] = ''
             existing_email = ''
 
-    principal = lead.get('principal_name', '').strip()
-    domain = extract_domain(website) if has_website else ''
-
-    if principal and domain:
-        guesses = generate_email_guesses(principal, domain)
+    best_contact = lead.get('contact_name', '').strip()
+    if lead.get('contact_name_validity') == 'valid' and best_contact and domain:
+        guesses = generate_email_guesses(best_contact, domain)
         if guesses:
             lead['guessed_personal_emails'] = ' | '.join(guesses)
             lead['personal_email_guesses'] = ' | '.join(guesses)
-    else:
+    elif not lead.get('guessed_personal_emails', '').strip():
         existing_guesses = lead.get('personal_email_guesses', '').strip()
         if existing_guesses:
             lead['guessed_personal_emails'] = existing_guesses.replace('; ', ' | ')
@@ -561,7 +581,8 @@ def refine_leads(skip_re_enrich=False, re_enrich_limit=50):
 
     enriched_fields = [
         'company_name', 'sector', 'location', 'website', 'website_verified',
-        'principal_name', 'contact_name', 'contact_name_validity',
+        'principal_name', 'principal_email_guess',
+        'contact_name', 'contact_name_validity',
         'contact_names', 'contact_titles',
         'generic_email', 'email', 'guessed_personal_emails', 'email_type',
         'phone', 'linkedin', 'ai_score', 'ai_reason', 'tag', 'google_rating',
@@ -594,19 +615,21 @@ def refine_leads(skip_re_enrich=False, re_enrich_limit=50):
     print(f"\nData quality: {high} high, {medium} medium, {low} low")
 
     with_principal = sum(1 for r in enriched if r.get('principal_name'))
+    with_contact = sum(1 for r in enriched if r.get('contact_name_validity') == 'valid')
     with_personal = sum(1 for r in enriched if r.get('email') and classify_email(r['email']) == 'personal')
     with_generic = sum(1 for r in enriched if r.get('generic_email'))
     with_guesses = sum(1 for r in enriched if r.get('guessed_personal_emails'))
     verified_web = sum(1 for r in enriched if r.get('website_verified') == 'yes')
-    validity_valid = sum(1 for r in enriched if r.get('contact_name_validity') == 'valid')
+    with_principal_email = sum(1 for r in enriched if r.get('principal_email_guess'))
 
     print(f"\nEnriched breakdown:")
-    print(f"  With principal name:    {with_principal}")
-    print(f"  Name validity (valid):  {validity_valid}")
-    print(f"  With personal email:    {with_personal}")
-    print(f"  With generic email:     {with_generic}")
-    print(f"  With email guesses:     {with_guesses}")
-    print(f"  Website verified:       {verified_web}")
+    print(f"  CH director (principal):  {with_principal}")
+    print(f"  Principal email guess:    {with_principal_email}")
+    print(f"  Website contact (valid):  {with_contact}")
+    print(f"  With personal email:      {with_personal}")
+    print(f"  With generic email:       {with_generic}")
+    print(f"  With email guesses:       {with_guesses}")
+    print(f"  Website verified:         {verified_web}")
 
     reason_counts = {}
     for r in excluded:

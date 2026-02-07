@@ -302,36 +302,42 @@ class LeadEnricher:
                 return lead
             
             ch_attempted = True
-            if self.companies_house_api_key and _is_empty(lead.contact_name):
+            if self.companies_house_api_key:
                 print(f"    [Companies House] Searching for director...")
                 ch_contact = self._get_director_from_companies_house(lead.company_name)
                 if ch_contact and self._is_valid_contact_name(ch_contact):
-                    lead.contact_name = normalize_name(ch_contact)
-                    lead.contact_verified = "true"
-                    sources_tried.append("companies_house")
-                    print(f"    [Companies House] Found director: {lead.contact_name}")
-                    
-                    if _is_empty(lead.email) and lead.website:
-                        domain = extract_domain(lead.website)
-                        guessed = guess_email(lead.company_name, lead.contact_name, domain)
-                        if guessed:
-                            lead.email = clean_email(guessed)
-                            lead.email_guessed = "true"
-                            lead.enrichment_source = "companies_house"
-                            print(f"    [Guessed] Email: {lead.email}")
-                    if lead.website and _is_empty(lead.contact_names):
-                        lead.contact_names = lead.contact_name
-                        lead.multiple_contacts = "FALSE"
+                    ch_name = normalize_name(ch_contact)
+                    lead.principal_name = ch_name
+                    if lead.website:
                         domain = extract_domain(lead.website)
                         if domain:
-                            guesses = generate_email_guesses(lead.contact_name, domain)
-                            lead.personal_email_guesses = "; ".join(guesses)
+                            guessed = guess_email(lead.company_name, ch_name, domain)
+                            if guessed:
+                                lead.principal_email_guess = clean_email(guessed)
+                    sources_tried.append("companies_house")
+                    print(f"    [Companies House] Found director: {lead.principal_name}")
+                    if lead.principal_email_guess:
+                        print(f"    [Companies House] Director email guess: {lead.principal_email_guess}")
+                    
+                    if _is_empty(lead.contact_name):
+                        lead.contact_name = ch_name
+                        lead.contact_verified = "true"
+                        lead.enrichment_source = "companies_house"
+                        
+                        if _is_empty(lead.email) and lead.principal_email_guess:
+                            lead.email = lead.principal_email_guess
+                            lead.email_guessed = "true"
+                        if lead.website and _is_empty(lead.contact_names):
+                            lead.contact_names = ch_name
+                            lead.multiple_contacts = "FALSE"
+                            domain = extract_domain(lead.website)
+                            if domain:
+                                guesses = generate_email_guesses(ch_name, domain)
+                                lead.personal_email_guesses = "; ".join(guesses)
                 else:
                     print(f"    [Companies House] No director found")
             elif not self.companies_house_api_key:
                 print(f"    [Companies House] Skipped - no API key")
-            elif lead.contact_name:
-                print(f"    [Companies House] Skipped - already has contact: {lead.contact_name}")
             
             if self._is_complete(lead):
                 lead.enrichment_source = sources_tried[0] if sources_tried else "companies_house"
