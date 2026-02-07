@@ -17,6 +17,7 @@ The system is built around a modular Python architecture comprising scraping, en
 - **Scraping:** Primarily uses the Google Places API for rich, structured business data. The Companies House API provides official company registry information, including director names. Failed attempts with Yell.com and Google Search due to anti-bot measures led to reliance on APIs.
 - **Targeting:** Supports "Professional Services Mode" (default) for accountants, lawyers, tech companies, etc., and a "Wellness Mode" for Unit 8 Godalming, targeting clinical and wellness businesses within a 10-mile radius of Godalming. Excludes retail, logistics, and industrial sectors.
 - **Lead Enrichment:**
+    - **Dual-contact model (Feb 2026):** Separates Companies House director data (`principal_name`, `principal_email_guess`) from website team contacts (`contact_name`). Enricher scans website first for team contacts, then Companies House independently for directors. `ch_enrich.py` provides standalone CH-only enrichment for existing leads.
     - Gathers company name, website, sector, contact name (Director/MD), email address, phone number, LinkedIn profile, physical address, employee count, and source.
     - Automates LinkedIn profile discovery.
     - Extracts phone numbers and websites.
@@ -33,6 +34,7 @@ The system is built around a modular Python architecture comprising scraping, en
 - **Modularity:** Separation of concerns into `scrapers/`, `enricher.py`, `ai_scorer.py`, and `refine_leads.py`.
 - **API-First Scraping:** Prioritizes reliable APIs (Google Places, Companies House) over traditional web scraping to mitigate blocking issues.
 - **Incremental Processing:** Supports incremental CSV saving during enrichment to prevent data loss.
+- **Processing Order:** Refinement reads from `leads.csv` and writes to `unit8_leads_enriched.csv`. CH enrichment (`ch_enrich.py`) runs AFTER refinement to populate `principal_name`/`principal_email_guess` on the enriched output. Running refinement after CH enrichment will overwrite CH data.
 - **Command-Line Flexibility:** Extensive CLI arguments allow for highly customizable scraping and enrichment runs.
 
 ## External Dependencies

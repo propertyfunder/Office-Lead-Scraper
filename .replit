@@ -16,26 +16,7 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
-args = "Lead Scraper"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
 args = "Dashboard"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "Lead Enrichment"
-
-[[workflows.workflow]]
-name = "Lead Scraper"
-author = "agent"
-
-[workflows.workflow.metadata]
-outputType = "console"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "python main.py --wellness --pages 1"
 
 [[workflows.workflow]]
 name = "Dashboard"
@@ -48,17 +29,6 @@ waitForPort = 5000
 
 [workflows.workflow.metadata]
 outputType = "webview"
-
-[[workflows.workflow]]
-name = "Lead Enrichment"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "python main.py --enrich-existing --output leads.csv"
-
-[workflows.workflow.metadata]
-outputType = "console"
 
 [[ports]]
 localPort = 5000
