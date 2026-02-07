@@ -58,6 +58,14 @@ SHORT_VALID_NAMES = {'ali', 'jo', 'al', 'ed', 'em', 'mo', 'bo', 'ty', 'di', 'lu'
 
 TITLE_PREFIXES = {'dr', 'mr', 'mrs', 'ms', 'miss', 'prof', 'professor', 'rev', 'sir', 'dame', 'lord', 'lady'}
 
+QUALIFICATION_SUFFIXES = {
+    'bsc', 'msc', 'phd', 'dphil', 'frcs', 'mbbs', 'mrcgp',
+    'mcsp', 'hcpc', 'mbacp', 'ukcp', 'babcp', 'pgdip',
+    'diphe', 'ba', 'ma', 'hons', 'fhea', 'pgcert',
+    'mphil', 'mchiro', 'dosth', 'dip', 'cert', 'accred',
+    'registered', 'chartered', 'fellow'
+}
+
 JOB_TITLE_WORDS = {
     'director', 'manager', 'ceo', 'cto', 'cfo', 'coo', 'founder',
     'partner', 'associate', 'senior', 'junior', 'head', 'lead',
@@ -90,20 +98,22 @@ def is_valid_name(name: str) -> str:
     if name_clean.lower() in PLACEHOLDER_NAMES:
         return 'invalid'
 
-    if any(c.isdigit() for c in name_clean):
-        return 'invalid'
-
     words = name_clean.split()
     if len(words) < 2:
         return 'invalid'
 
-    if len(words) > 4:
-        return 'review'
+    name_words = [w for w in words
+                  if w.lower().rstrip('.') not in TITLE_PREFIXES
+                  and w.lower().strip('().,') not in QUALIFICATION_SUFFIXES]
 
-    name_words = [w for w in words if w.lower().rstrip('.') not in TITLE_PREFIXES]
+    if any(c.isdigit() for c in ' '.join(name_words)):
+        return 'invalid'
 
     if len(name_words) < 1:
         return 'invalid'
+
+    if len(name_words) > 4:
+        return 'review'
 
     for word in name_words:
         word_lower = word.lower().rstrip('.').rstrip("'s")
@@ -119,7 +129,7 @@ def is_valid_name(name: str) -> str:
         return 'invalid'
 
     for word in name_words:
-        alpha = re.sub(r'[^a-zA-Z]', '', word)
+        alpha = re.sub(r'[^a-zA-Z]', '', word.replace("'", "").replace("-", ""))
         if len(alpha) < 2:
             if alpha.lower() not in SHORT_VALID_NAMES:
                 continue
@@ -131,12 +141,12 @@ def is_valid_name(name: str) -> str:
             if len(alpha) >= 4 and vowel_ratio < 0.15:
                 return 'review'
 
-    alpha_only = re.sub(r'[^a-zA-Z]', '', name_clean)
+    alpha_only = re.sub(r'[^a-zA-Z]', '', name_clean.replace("'", "").replace("-", ""))
     if len(alpha_only) < 4:
         if not any(w.lower() in SHORT_VALID_NAMES for w in name_words):
             return 'invalid'
 
-    if re.search(r'[^aeiouyAEIOUY\s]{5,}', alpha_only):
+    if re.search(r'[^aeiouyAEIOUY\s]{6,}', alpha_only):
         return 'review'
 
     for w in name_words:
@@ -179,15 +189,19 @@ def strip_job_titles(name: str) -> str:
     cleaned = []
     for w in words:
         w_lower = w.lower().rstrip('.,;:')
-        if w_lower in TITLE_PREFIXES:
+        w_stripped = w_lower.strip('()')
+        if w_stripped in TITLE_PREFIXES:
             continue
-        if w_lower in JOB_TITLE_WORDS:
+        if w_stripped in JOB_TITLE_WORDS:
+            continue
+        if w_stripped in QUALIFICATION_SUFFIXES:
             continue
         if w_lower in {'–', '-', '|', '/'}:
             break
         cleaned.append(w)
     result = ' '.join(cleaned).strip()
     result = re.sub(r'\s*[-–|/].*$', '', result).strip()
+    result = re.sub(r'\s*\(.*?\)\s*$', '', result).strip()
     return result if len(result.split()) >= 2 else name.strip()
 
 

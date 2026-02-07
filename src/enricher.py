@@ -141,7 +141,9 @@ class LeadEnricher:
                               'book', 'booking', 'appointment', 'clinician', 'doctor',
                               'leadership', 'consultant', 'specialist', 'coach',
                               'instructor', 'director', 'associates', 'partners',
-                              'our-people', 'our_people', 'who-we-are', 'who_we_are']
+                              'our-people', 'our_people', 'who-we-are', 'who_we_are',
+                              'about-us', 'about_us', 'our-story', 'our_story',
+                              'meet-us', 'meet_us', 'our-experts', 'our_experts']
         self.team_page_keywords = [
             'team', 'our team', 'meet the team', 'meet our team',
             'clinicians', 'practitioners',
@@ -149,7 +151,19 @@ class LeadEnricher:
             'staff', 'directors', 'specialists', 'coaches', 'instructors',
             'our people', 'our experts', 'meet us', 'who we are', 'the team',
             'our associates', 'our partners', 'our practitioners',
-            'our clinicians', 'our therapists', 'our consultants'
+            'our clinicians', 'our therapists', 'our consultants',
+            'our story', 'about me', 'your therapist', 'your practitioner'
+        ]
+        self.fallback_page_paths = [
+            '/team', '/our-team', '/the-team', '/meet-the-team',
+            '/about', '/about-us', '/about-me',
+            '/staff', '/our-staff',
+            '/clinicians', '/our-clinicians',
+            '/practitioners', '/our-practitioners',
+            '/therapists', '/our-therapists',
+            '/our-story', '/leadership',
+            '/people', '/our-people',
+            '/contact', '/contact-us',
         ]
         
         self.sector_categories = [
@@ -261,7 +275,7 @@ class LeadEnricher:
                     contact_titles_list = []
                     all_email_guesses = []
                     
-                    for c in web_contacts[:3]:
+                    for c in web_contacts[:8]:
                         contact_names_list.append(c['name'])
                         contact_titles_list.append(c.get('title', ''))
                         if domain:
@@ -465,15 +479,28 @@ class LeadEnricher:
         if name_lower in self.invalid_names:
             return False
         words = name_lower.split()
-        if len(words) < 2:
+        
+        title_prefixes = {'dr', 'dr.', 'mr', 'mr.', 'mrs', 'mrs.', 'ms', 'ms.', 'miss',
+                          'prof', 'prof.', 'professor', 'rev', 'rev.', 'sir', 'dame'}
+        qualification_suffixes = {'bsc', 'msc', 'phd', 'dphil', 'frcs', 'mbbs', 'mrcgp',
+                                   'mcsp', 'hcpc', 'mbacp', 'ukcp', 'babcp', 'pgdip',
+                                   'diphe', 'ba', 'ma', 'hons', 'fhea', 'pgcert',
+                                   'mphil', 'mchiro', 'dosth', 'dip', 'cert', 'accred',
+                                   'registered', 'chartered', 'fellow'}
+        
+        name_words = [w for w in words
+                      if w.rstrip('.') not in title_prefixes
+                      and w.strip('().,') not in qualification_suffixes]
+        
+        if len(name_words) < 2:
             return False
-        if any(word in self.invalid_names for word in words):
+        if any(word in self.invalid_names for word in name_words):
             return False
-        if any(phrase in name_lower for phrase in self.invalid_name_phrases):
+        if any(phrase in ' '.join(name_words) for phrase in self.invalid_name_phrases):
             return False
-        if words[0] == words[1]:
+        if name_words[0] == name_words[1]:
             return False
-        if any(c.isdigit() for c in name):
+        if any(c.isdigit() for c in ' '.join(name_words)):
             return False
         business_words = {'clinic', 'clinics', 'surgery', 'surgeries', 'medical', 'dental',
                          'practice', 'practices', 'centre', 'centers', 'center', 'centres',
@@ -489,30 +516,21 @@ class LeadEnricher:
                          'partnership', 'potential', 'limitless', 'wellness', 'fitness',
                          'studio', 'studios', 'academy', 'institute', 'school', 'college',
                          'nursery'}
-        if any(w.rstrip("'s") in business_words for w in words):
+        if any(w.rstrip("'s") in business_words for w in name_words):
             return False
-        if len(words) > 3:
+        if len(name_words) > 4:
             return False
-        if re.search(r"'s\s+\w", name_lower):
+        if re.search(r"'s\s+\w", ' '.join(name_words)):
             return False
-        title_prefixes = {'dr', 'mr', 'mrs', 'ms', 'miss', 'prof', 'professor'}
-        name_words = [w for w in words if w.rstrip('.') not in title_prefixes]
         for word in name_words:
-            alpha = re.sub(r'[^a-z]', '', word)
-            if len(alpha) >= 2:
+            alpha = re.sub(r'[^a-z]', '', word.replace("'", "").replace("-", ""))
+            if len(alpha) >= 3:
                 vowels = sum(1 for c in alpha if c in 'aeiouy')
                 if vowels == 0:
                     return False
-        alpha_only = re.sub(r'[^a-z]', '', name_lower)
-        if re.search(r'[^aeiouy]{5,}', alpha_only):
+        alpha_only = re.sub(r'[^a-z]', '', ' '.join(name_words).replace("'", "").replace("-", ""))
+        if re.search(r'[^aeiouy]{6,}', alpha_only):
             return False
-        unusual_bigrams = {'wl', 'wt', 'xz', 'zp', 'gf', 'gj',
-                          'kp', 'jp', 'jf', 'jm', 'mq', 'dk', 'dx', 'hk', 'pn',
-                          'rl', 'rq', 'sq', 'tp', 'vg', 'wk', 'xf', 'zf'}
-        for word in name_words:
-            alpha = re.sub(r'[^a-z]', '', word)
-            if len(alpha) >= 2 and alpha[:2] in unusual_bigrams:
-                return False
         return True
     
     def _is_generic_email(self, email: str) -> bool:
@@ -550,16 +568,28 @@ class LeadEnricher:
         homepage_soup = None
         homepage_text = ""
         final_url = lead.website
+        site_domain = extract_domain(lead.website) if lead.website else ""
+        
+        if not lead.website:
+            return result
         
         try:
-            response = make_request(lead.website)
+            response = make_request(lead.website, timeout=10)
+            if not response:
+                log_verbose(f"Website unresponsive: {lead.website}")
+                log_failed_url(lead.website, lead.company_name, "Unresponsive - no response")
+                return result
+            if response.status_code >= 400:
+                log_verbose(f"Website returned {response.status_code}: {lead.website}")
+                log_failed_url(lead.website, lead.company_name, f"HTTP {response.status_code}")
+                return result
             if response:
                 final_url = response.url
                 homepage_soup = BeautifulSoup(response.text, 'lxml')
                 homepage_text = homepage_soup.get_text(separator=' ')
                 all_text = homepage_text
                 
-                found = self._find_email(homepage_soup, homepage_text)
+                found = self._find_email(homepage_soup, homepage_text, site_domain)
                 if found:
                     all_emails_found.append(found)
                     if self._is_personal_email(found):
@@ -597,26 +627,31 @@ class LeadEnricher:
         root_url = f"{parsed_url.scheme}://{parsed_url.netloc}/"
         discovered_pages = self._discover_nav_pages(homepage_soup, root_url) if homepage_soup else []
         
+        max_subpages = 8
         if discovered_pages:
-            print(f"      Visiting {len(discovered_pages[:6])} subpages: {[p.split('/')[-2] if p.endswith('/') else p.split('/')[-1] for p in discovered_pages[:6]]}")
+            print(f"      Visiting {len(discovered_pages[:max_subpages])} subpages: {[p.split('/')[-2] if p.endswith('/') else p.split('/')[-1] for p in discovered_pages[:max_subpages]]}")
         else:
             has_soup = homepage_soup is not None
             nav_count = len(homepage_soup.find_all(['nav', 'header'])) if homepage_soup else 0
             print(f"      No subpages discovered (soup={has_soup}, navs={nav_count})")
         
-        for page_url in discovered_pages[:6]:
+        subpage_soups = []
+        for page_url in discovered_pages[:max_subpages]:
             try:
                 rate_limit(0.2, 0.5)
                 response = make_request(page_url)
                 if not response:
                     continue
+                if response.status_code != 200:
+                    continue
                 
                 soup = BeautifulSoup(response.text, 'lxml')
+                subpage_soups.append(soup)
                 page_text = soup.get_text(separator=' ')
                 all_text += "\n" + page_text
                 
                 if not personal_email:
-                    found = self._find_email(soup, page_text)
+                    found = self._find_email(soup, page_text, site_domain)
                     if found:
                         log_verbose(f"Subpage email found: {found}")
                         all_emails_found.append(found)
@@ -637,8 +672,8 @@ class LeadEnricher:
                         contact = found
                         source = "website"
                 
-                if len(all_contacts) < 3:
-                    multi = self._find_multiple_contacts(soup)
+                if len(all_contacts) < 8:
+                    multi = self._find_multiple_contacts(soup, max_contacts=8)
                     for c in multi:
                         if c['name'].lower() not in {x['name'].lower() for x in all_contacts}:
                             all_contacts.append(c)
@@ -650,8 +685,43 @@ class LeadEnricher:
                 log_verbose(f"Error checking {page_url}: {e}")
                 continue
         
+        if not contact and not all_contacts:
+            print(f"      [Stage 2] Deep DOM scan for names...")
+            all_deep_contacts = []
+            soups_to_scan = []
+            if homepage_soup:
+                soups_to_scan.append(homepage_soup)
+            soups_to_scan.extend(subpage_soups)
+            
+            for scan_soup in soups_to_scan:
+                deep_contacts = self._deep_dom_scan_for_names(scan_soup)
+                for c in deep_contacts:
+                    if c['name'].lower() not in {x['name'].lower() for x in all_deep_contacts}:
+                        all_deep_contacts.append(c)
+                if len(all_deep_contacts) >= 8:
+                    break
+            
+            if all_deep_contacts:
+                all_deep_contacts = self._sort_contacts_by_role(all_deep_contacts)
+                for c in all_deep_contacts:
+                    if c['name'].lower() not in {x['name'].lower() for x in all_contacts}:
+                        all_contacts.append(c)
+                if not contact:
+                    contact = all_deep_contacts[0]['name']
+                    source = "website"
+                    print(f"      [Stage 2] Found contact: {contact}")
+        
         if contact and contact.lower() not in {c['name'].lower() for c in all_contacts}:
             all_contacts.insert(0, {'name': normalize_name(contact), 'title': ''})
+        
+        if len(all_contacts) > 1:
+            primary = all_contacts[0] if contact else None
+            rest = all_contacts[1:] if contact else all_contacts
+            rest = self._sort_contacts_by_role(rest)
+            if primary:
+                all_contacts = [primary] + rest
+            else:
+                all_contacts = rest
         
         known_format = ""
         domain = extract_domain(lead.website)
@@ -667,7 +737,7 @@ class LeadEnricher:
         result['email'] = personal_email or personal_domain_email or generic_email
         result['generic_email'] = generic_email
         result['contact'] = contact
-        result['contacts'] = all_contacts[:3]
+        result['contacts'] = all_contacts[:8]
         result['source'] = source
         result['text'] = all_text[:5000]
         result['known_email_format'] = known_format
@@ -710,12 +780,21 @@ class LeadEnricher:
                         if not any(x in href.lower() for x in ['#', 'javascript:', 'mailto:', 'tel:', '.pdf', '.jpg', '.png']):
                             discovered.append(full_url)
         
-        return discovered[:6]
+        if len(discovered) < 3:
+            for path in self.fallback_page_paths:
+                fallback_url = urljoin(base_url, path)
+                if fallback_url not in discovered:
+                    discovered.append(fallback_url)
+                if len(discovered) >= 10:
+                    break
+        
+        return discovered[:8]
     
-    def _find_email(self, soup: BeautifulSoup, page_text: str) -> str:
+    def _find_email(self, soup: BeautifulSoup, page_text: str, site_domain: str = "") -> str:
         junk_domains = ['example', 'test', 'domain', 'email@', 'noreply', 'no-reply',
                         'unsubscribe', 'sentry', 'wixpress', 'godaddy', 'squarespace',
-                        'wordpress', 'mailchimp', 'googleapis', 'gstatic', 'cloudflare', 'filler@']
+                        'wordpress', 'mailchimp', 'googleapis', 'gstatic', 'cloudflare', 'filler@',
+                        'wpengine', 'schema.org', 'w3.org', 'jquery', 'bootstrap', 'fontawesome']
 
         mailto_links = soup.find_all('a', href=re.compile(r'^mailto:', re.I))
         for link in mailto_links:
@@ -733,6 +812,15 @@ class LeadEnricher:
                 email = re.sub(r'^.*mailto:', '', href, flags=re.I).split('?')[0].strip()
                 email = email.rstrip('.,;:!?)>]')
                 if email and '@' in email:
+                    if not any(x in email.lower() for x in junk_domains):
+                        return email
+
+        for elem in soup.find_all('a', href=True):
+            href = str(elem.get('href', ''))
+            if 'mailto:' in href.lower():
+                email_match = re.search(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,7}', href)
+                if email_match:
+                    email = email_match.group(0)
                     if not any(x in email.lower() for x in junk_domains):
                         return email
 
@@ -780,7 +868,34 @@ class LeadEnricher:
             except (json.JSONDecodeError, TypeError):
                 pass
         
-        return extract_email_from_text(page_text)
+        js_scripts = soup.find_all('script')
+        for script in js_scripts:
+            if script.string:
+                js_emails = re.findall(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,7}', script.string)
+                for email in js_emails:
+                    if not any(x in email.lower() for x in junk_domains):
+                        if site_domain and site_domain.replace('www.', '') in email.lower():
+                            return email
+        
+        text_email = extract_email_from_text(page_text)
+        if text_email:
+            if site_domain:
+                email_domain = text_email.split('@')[1].lower() if '@' in text_email else ''
+                site_clean = site_domain.replace('www.', '').lower()
+                if email_domain == site_clean:
+                    return text_email
+            return text_email
+        
+        if site_domain:
+            site_clean = site_domain.replace('www.', '').lower()
+            all_text_emails = re.findall(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,7}', page_text)
+            for email in all_text_emails:
+                if not any(x in email.lower() for x in junk_domains):
+                    email_domain = email.split('@')[1].lower() if '@' in email else ''
+                    if email_domain == site_clean:
+                        return email
+        
+        return ""
     
     def _find_contact_name(self, soup: BeautifulSoup) -> str:
         meta_author = soup.find('meta', attrs={'name': 'author'})
@@ -848,7 +963,7 @@ class LeadEnricher:
         
         return ""
     
-    def _find_multiple_contacts(self, soup: BeautifulSoup, max_contacts: int = 3) -> List[dict]:
+    def _find_multiple_contacts(self, soup: BeautifulSoup, max_contacts: int = 8) -> List[dict]:
         contacts = []
         seen_names = set()
         
@@ -959,7 +1074,75 @@ class LeadEnricher:
                 except (json.JSONDecodeError, TypeError, AttributeError):
                     pass
         
+        if len(contacts) > 1:
+            contacts = self._sort_contacts_by_role(contacts)
+        
         return contacts[:max_contacts]
+    
+    def _role_priority(self, title: str) -> int:
+        if not title:
+            return 99
+        title_lower = title.lower()
+        priority_tiers = [
+            (1, ['founder', 'co-founder', 'owner', 'managing director', 'ceo', 'principal', 'proprietor']),
+            (2, ['director', 'partner', 'clinical director', 'practice owner', 'practice lead', 'practice manager']),
+            (3, ['lead therapist', 'head therapist', 'senior therapist', 'lead physiotherapist', 'head of']),
+            (4, ['consultant', 'specialist', 'senior']),
+            (5, ['physiotherapist', 'osteopath', 'chiropractor', 'therapist', 'practitioner', 'clinician']),
+            (6, ['coach', 'instructor', 'teacher']),
+        ]
+        for priority, keywords in priority_tiers:
+            if any(kw in title_lower for kw in keywords):
+                return priority
+        return 99
+    
+    def _sort_contacts_by_role(self, contacts: List[dict]) -> List[dict]:
+        return sorted(contacts, key=lambda c: self._role_priority(c.get('title', '')))
+    
+    def _deep_dom_scan_for_names(self, soup: BeautifulSoup) -> List[dict]:
+        contacts = []
+        seen_names = set()
+        
+        for img in soup.find_all('img', alt=True):
+            alt = str(img.get('alt', ''))
+            if self._looks_like_name(alt) and self._is_valid_contact_name(alt):
+                name_lower = alt.lower()
+                if name_lower not in seen_names:
+                    seen_names.add(name_lower)
+                    contacts.append({'name': normalize_name(alt), 'title': ''})
+        
+        for elem in soup.find_all(['p', 'span', 'li', 'td']):
+            text = clean_text(elem.get_text())
+            if not text or len(text) > 200:
+                continue
+            patterns = [
+                r'(?:founded|run|owned|led|managed|created)\s+by\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)',
+                r'([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\s+(?:is|are)\s+(?:the|our|a)\s+(?:founder|owner|director|principal)',
+                r'(?:I\'m|I am|My name is|Hi,?\s+I\'m)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)',
+                r'(?:meet|introducing|welcome)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)',
+            ]
+            for pattern in patterns:
+                match = re.search(pattern, text)
+                if match:
+                    name = match.group(1).strip()
+                    if self._looks_like_name(name) and self._is_valid_contact_name(name):
+                        name_lower = name.lower()
+                        if name_lower not in seen_names:
+                            seen_names.add(name_lower)
+                            contacts.append({'name': normalize_name(name), 'title': ''})
+        
+        for card in soup.find_all(['div', 'article', 'li'], class_=re.compile(r'card|member|person|author|bio|profile|avatar', re.I)):
+            headings = card.find_all(['h2', 'h3', 'h4', 'h5', 'strong', 'b', 'span'])
+            for heading in headings:
+                text = clean_text(heading.get_text())
+                if self._looks_like_name(text) and self._is_valid_contact_name(text):
+                    name_lower = text.lower()
+                    if name_lower not in seen_names:
+                        seen_names.add(name_lower)
+                        contacts.append({'name': normalize_name(text), 'title': ''})
+                        break
+        
+        return contacts[:8]
     
     def _detect_email_format(self, known_email: str, domain: str) -> str:
         if not known_email or not domain or '@' not in known_email:
@@ -1022,57 +1205,68 @@ class LeadEnricher:
         return ""
     
     def _looks_like_name(self, text: str) -> bool:
-        if not text or len(text) < 5 or len(text) > 50:
+        if not text or len(text) < 4 or len(text) > 60:
             return False
         words = text.split()
-        if len(words) < 2 or len(words) > 4:
+        if len(words) < 2 or len(words) > 5:
             return False
         
-        for word in words:
-            clean_word = word.replace("'", "").replace("-", "")
+        title_prefixes = {'dr', 'dr.', 'mr', 'mr.', 'mrs', 'mrs.', 'ms', 'ms.', 'miss',
+                          'prof', 'prof.', 'professor', 'rev', 'rev.', 'sir', 'dame'}
+        qualification_suffixes = {'bsc', 'msc', 'phd', 'dphil', 'frcs', 'mbbs', 'mrcgp',
+                                   'mcsp', 'hcpc', 'mbacp', 'ukcp', 'babcp', 'pgdip',
+                                   'diphe', 'ba', 'ma', 'hons', 'fhea', 'pgcert',
+                                   'mphil', 'mchiro', 'dosth', 'dip', 'cert', 'accred',
+                                   'registered', 'chartered', 'fellow'}
+        
+        name_words = []
+        for w in words:
+            w_clean = w.strip('.,()').lower()
+            if w_clean in title_prefixes:
+                continue
+            if w_clean in qualification_suffixes:
+                continue
+            if w_clean.startswith('(') or w_clean.endswith(')'):
+                continue
+            name_words.append(w)
+        
+        if len(name_words) < 2:
+            return False
+        
+        for word in name_words:
+            clean_word = word.replace("'", "").replace("-", "").replace(".", "")
             if len(clean_word) < 2:
-                return False
-            if not any(c.lower() in 'aeiou' for c in clean_word):
-                return False
+                continue
             if not clean_word[0].isupper():
                 return False
-            if not clean_word.isalpha():
+            remaining = clean_word[1:]
+            if not all(c.isalpha() for c in remaining):
                 return False
         
-        exclude_words = ['the', 'and', 'our', 'team', 'about', 'contact', 'director', 
-                        'ceo', 'founder', 'welcome', 'meet', 'staff', 'practitioner',
+        exclude_words = {'the', 'and', 'our', 'team', 'about', 'contact',
+                        'welcome', 'meet', 'staff',
                         'ltd', 'limited', 'inc', 'clinic', 'practice', 'services',
                         'physiotherapy', 'osteopathy', 'chiropractic', 'dental', 'therapy',
-                        'health', 'wellness', 'clinic', 'centre', 'center', 'studio',
+                        'health', 'wellness', 'centre', 'center', 'studio',
                         'home', 'page', 'privacy', 'policy', 'terms', 'conditions',
                         'read', 'more', 'view', 'all', 'latest', 'news', 'book', 'online',
-                        'new', 'title', 'menu', 'dropdown', 'items', 'custom', 'scroll']
-        if any(w.lower() in exclude_words for w in words):
+                        'new', 'title', 'menu', 'dropdown', 'items', 'custom', 'scroll',
+                        'surgery', 'hospital', 'pharmacy', 'university', 'college'}
+        if any(w.lower() in exclude_words for w in name_words):
             return False
         
-        first_names_uk = {
-            'james', 'john', 'david', 'michael', 'robert', 'william', 'richard', 'thomas', 
-            'sarah', 'emma', 'hannah', 'helen', 'claire', 'kate', 'anna', 'mary', 'jane',
-            'peter', 'paul', 'mark', 'chris', 'stephen', 'andrew', 'ian', 'simon', 'alex',
-            'lucy', 'rachel', 'rebecca', 'sophie', 'laura', 'lisa', 'amy', 'victoria',
-            'daniel', 'matthew', 'adam', 'ben', 'tom', 'nick', 'sam', 'joe', 'jack',
-            'jess', 'jessica', 'gemma', 'natalie', 'nicole', 'charlotte', 'olivia', 'emily',
-            'catherine', 'elizabeth', 'georgina', 'camila', 'michele', 'waqaar', 'ivaylo',
-            'bevan', 'wilson', 'donna', 'morgan', 'kim', 'joanne', 'sian', 'suneetha',
-            'limei', 'tricia', 'vanessa', 'ellen', 'nicola', 'donald', 'diana', 'julie',
-            'karen', 'susan', 'sharon', 'deborah', 'tracy', 'amanda', 'jennifer', 'alison',
-            'martin', 'gary', 'kevin', 'neil', 'stuart', 'alan', 'graham', 'philip', 'colin',
-            'caroline', 'fiona', 'paula', 'wendy', 'andrea', 'jacqueline', 'lesley', 'dawn',
-            'anthony', 'brian', 'barry', 'derek', 'tony', 'roger', 'keith', 'kenneth',
-            'sandra', 'linda', 'christine', 'margaret', 'janet', 'angela', 'gillian', 'denise',
-            'edward', 'carl', 'gordon', 'roy', 'trevor', 'wayne', 'jeffrey', 'russell',
-            'kerry', 'tara', 'zoe', 'holly', 'chloe', 'jade', 'megan', 'bethany', 'ellie',
-            'luke', 'ryan', 'jamie', 'lee', 'scott', 'craig', 'darren', 'sean', 'dean',
-            'abigail', 'molly', 'grace', 'lily', 'ella', 'daisy', 'freya', 'millie', 'poppy',
-            'george', 'harry', 'charlie', 'oscar', 'leo', 'theo', 'noah', 'jacob', 'alfie'
-        }
-        first_word = words[0].lower()
-        return first_word in first_names_uk
+        for word in name_words:
+            clean_word = word.replace("'", "").replace("-", "").replace(".", "")
+            if len(clean_word) >= 3:
+                vowels = sum(1 for c in clean_word.lower() if c in 'aeiouy')
+                if vowels == 0:
+                    return False
+        
+        first_word = name_words[0].replace("'", "").replace("-", "")
+        if first_word[0].isupper() and first_word[1:].islower():
+            return True
+        
+        return False
     
     def _estimate_employee_count(self, soup: BeautifulSoup, page_text: str) -> str:
         patterns = [
@@ -1153,48 +1347,59 @@ class LeadEnricher:
         
         self.linkedin_attempts += 1
         
-        try:
-            town = lead.search_town or lead.location.split(',')[0] if lead.location else ""
-            search_query = f'site:linkedin.com/in "{lead.company_name}" {town} owner founder director'
-            
-            search_url = f"https://www.bing.com/search?q={quote_plus(search_query)}"
-            
-            response = requests.get(
-                search_url,
-                headers=get_headers(),
-                timeout=10
-            )
-            
-            if response.status_code != 200:
-                return ""
-            
-            soup = BeautifulSoup(response.text, 'lxml')
-            
-            results = soup.find_all(['li', 'div'], class_=re.compile(r'b_algo|result', re.I))
-            if not results:
-                results = soup.find_all('li')
-            
-            for result in results[:5]:
-                text = result.get_text()
+        search_queries = [
+            f'site:linkedin.com/in "{lead.company_name}" owner founder director',
+        ]
+        
+        town = lead.search_town or (lead.location.split(',')[0] if lead.location else "")
+        if town:
+            search_queries.append(f'site:linkedin.com/in "{lead.company_name}" {town}')
+        
+        sector = (lead.sector or '').lower()
+        if any(kw in sector for kw in ['physio', 'osteo', 'chiro', 'mental', 'massage', 'yoga', 'pilates', 'nutrition', 'wellness', 'aesthetics', 'dental']):
+            search_queries.append(f'site:linkedin.com/in "{lead.company_name}" practitioner therapist lead')
+        
+        for search_query in search_queries[:2]:
+            try:
+                search_url = f"https://www.bing.com/search?q={quote_plus(search_query)}"
                 
-                if 'linkedin.com/in/' in text.lower():
-                    title_patterns = [
-                        r'([A-Z][a-z]+\s+[A-Z][a-z]+)\s*[-–|]\s*(?:founder|owner|director|ceo|managing|principal)',
-                        r'(?:founder|owner|director|ceo|managing|principal)[:\s]+([A-Z][a-z]+\s+[A-Z][a-z]+)',
-                        r'^([A-Z][a-z]+\s+[A-Z][a-z]+)\s+[-|]',
-                    ]
-                    for pattern in title_patterns:
-                        match = re.search(pattern, text, re.I)
-                        if match:
-                            name = match.group(1).strip()
-                            if self._looks_like_name(name):
-                                log_verbose(f"Found LinkedIn contact: {name}")
-                                return name
-            
-            rate_limit(0.5, 1.0)
-            
-        except Exception as e:
-            log_verbose(f"LinkedIn search error: {e}")
+                response = requests.get(
+                    search_url,
+                    headers=get_headers(),
+                    timeout=10
+                )
+                
+                if response.status_code != 200:
+                    continue
+                
+                soup = BeautifulSoup(response.text, 'lxml')
+                
+                results = soup.find_all(['li', 'div'], class_=re.compile(r'b_algo|result', re.I))
+                if not results:
+                    results = soup.find_all('li')
+                
+                for result in results[:5]:
+                    text = result.get_text()
+                    
+                    if 'linkedin.com/in/' in text.lower():
+                        title_patterns = [
+                            r'([A-Z][a-z]+\s+[A-Z][a-z]+)\s*[-–|]\s*(?:founder|owner|director|ceo|managing|principal|lead|head|senior)',
+                            r'(?:founder|owner|director|ceo|managing|principal|lead|head)[:\s]+([A-Z][a-z]+\s+[A-Z][a-z]+)',
+                            r'^([A-Z][a-z]+\s+[A-Z][a-z]+)\s+[-|]',
+                            r'([A-Z][a-z]+\s+[A-Z][a-z]+)\s*[-–|]\s*(?:physiotherapist|osteopath|chiropractor|therapist|practitioner|clinician|consultant)',
+                        ]
+                        for pattern in title_patterns:
+                            match = re.search(pattern, text, re.I)
+                            if match:
+                                name = match.group(1).strip()
+                                if self._looks_like_name(name):
+                                    log_verbose(f"Found LinkedIn contact: {name}")
+                                    return name
+                
+                rate_limit(0.5, 1.0)
+                
+            except Exception as e:
+                log_verbose(f"LinkedIn search error: {e}")
         
         return ""
     

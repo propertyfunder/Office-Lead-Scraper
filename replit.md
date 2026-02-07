@@ -39,6 +39,15 @@ The system is built around a modular Python architecture comprising scraping, en
 - **Utility Functions:** `src/utils.py` handles requests, CSV operations, and email extraction.
 - **Output Fields:** Generates comprehensive CSV files with fields like Company name, Website, Sector, Contact name, Email address, Phone number, LinkedIn profile, Physical location, Estimated employee count, Source, AI Score, AI Reason, Tag, Google Rating, and Category.
 
+**Enrichment Pipeline v2 (Feb 2026):**
+    - **Expanded page targeting:** 12 fallback URL paths (/team, /clinicians, /practitioners, /about-us, /staff, /meet-the-team, /our-story, /leadership, /who-we-are, /our-team, /therapists, /our-people) tried when nav discovery yields <3 pages.
+    - **Improved email extraction:** JS script scanning, full-text regex with domain validation, icon-only mailto parsing.
+    - **LinkedIn search:** Multiple query strategies with wellness-specific role terms (practitioner, therapist, lead).
+    - **Multi-contact extraction:** Limit raised to 8 with role-based prioritization (founder/director > practice lead > senior > general staff). Global sorting before truncation ensures highest-priority contacts retained.
+    - **Name validation:** Handles Dr/BSc/MSc/PhD titles, qualification suffixes, hyphenated names, non-English names. Consonant cluster threshold relaxed from 5 to 6.
+    - **Two-stage enrichment:** Stage 1 uses structured links/headings. Stage 2 deep DOM scan checks homepage AND all subpages for card-based/image alt/contextual patterns when Stage 1 finds nothing.
+    - **Responsiveness check:** Early return when website is unresponsive or returns HTTP 400+, with failure logging.
+
 **System Design Choices:**
 - **Modularity:** Separation of concerns into `scrapers/`, `enricher.py`, `ai_scorer.py`, and `refine_leads.py`.
 - **API-First Scraping:** Prioritizes reliable APIs (Google Places, Companies House) over traditional web scraping to mitigate blocking issues.
