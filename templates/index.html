@@ -201,6 +201,30 @@
         .ds-medium { background: #fef3c7; color: #92400e; }
         .ds-low { background: #fee2e2; color: #991b1b; }
         
+        .confidence-badge {
+            display: inline-block;
+            padding: 3px 6px;
+            border-radius: 4px;
+            font-size: 0.65rem;
+            font-weight: 700;
+            margin-left: 2px;
+        }
+        .conf-5, .conf-4 { background: #d1fae5; color: #065f46; }
+        .conf-3 { background: #fef3c7; color: #92400e; }
+        .conf-2, .conf-1 { background: #fee2e2; color: #991b1b; }
+        
+        .email-type-badge {
+            display: inline-block;
+            padding: 2px 5px;
+            border-radius: 3px;
+            font-size: 0.6rem;
+            font-weight: 600;
+            background: #e0e7ff;
+            color: #3730a3;
+            margin-left: 2px;
+            text-transform: uppercase;
+        }
+        
         .empty-state {
             text-align: center;
             padding: 50px 20px;
@@ -299,6 +323,14 @@
                     <div class="number">{{ unit8_stats.avg_score }}</div>
                     <div class="label">Avg Score</div>
                 </div>
+                <div class="stat-card">
+                    <div class="number">{{ unit8_stats.avg_confidence }}</div>
+                    <div class="label">Avg Confidence</div>
+                </div>
+                <div class="stat-card">
+                    <div class="number" style="color:#92400e;">{{ unit8_stats.name_review }}</div>
+                    <div class="label">Need Review</div>
+                </div>
             </div>
             
             <div class="toolbar">
@@ -369,6 +401,12 @@
                                 {% if lead.missing_email == 'True' %}<span class="flag flag-missing">no email</span><br>{% endif %}
                                 {% if lead.data_score %}
                                     <span class="data-score-badge ds-{{ lead.data_score }}">{{ lead.data_score }}</span>
+                                {% endif %}
+                                {% if lead.confidence_score %}
+                                    <span class="confidence-badge conf-{{ lead.confidence_score }}" title="Confidence: {{ lead.confidence_score }}/5{% if lead.refinement_notes %} | {{ lead.refinement_notes }}{% endif %}">C{{ lead.confidence_score }}</span>
+                                {% endif %}
+                                {% if lead.email_type and lead.email_type != 'none' %}
+                                    <span class="email-type-badge" title="Email type: {{ lead.email_type }}">{{ lead.email_type[:3] }}</span>
                                 {% endif %}
                             </td>
                             <td>
@@ -562,6 +600,8 @@
                 if (lead.name_review_needed === 'True') flagCell += '<span class="flag flag-review">review name</span><br>';
                 if (lead.missing_email === 'True') flagCell += '<span class="flag flag-missing">no email</span><br>';
                 if (lead.data_score) flagCell += `<span class="data-score-badge ds-${lead.data_score}">${lead.data_score}</span>`;
+                if (lead.confidence_score) flagCell += ` <span class="confidence-badge conf-${lead.confidence_score}" title="Confidence: ${lead.confidence_score}/5${lead.refinement_notes ? ' | ' + lead.refinement_notes : ''}">C${lead.confidence_score}</span>`;
+                if (lead.email_type && lead.email_type !== 'none') flagCell += ` <span class="email-type-badge" title="Email type: ${lead.email_type}">${lead.email_type.substring(0,3)}</span>`;
 
                 return `<tr>
                     <td><div class="company-name">${lead.company_name}</div><div class="contact-info">${lead.sector || ''}</div></td>

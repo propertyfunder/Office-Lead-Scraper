@@ -32,7 +32,7 @@ The system is built around a modular Python architecture comprising scraping, en
     - **Email deduplication:** When `contact_name` matches `principal_name`, email guesses are deduplicated.
     - **Smart name validation:** Vowel checks, gibberish detection (unusual bigrams/trigrams), job title stripping, repeated character detection.
     - **Email formats:** firstname.lastname@, f.lastname@, firstname@, initials@, lastname@, firstname_lastname@, firstnamelastname@
-    - **Output columns:** company_name, website, website_verified, facebook_url, contact_name, contact_names, contact_email, personal_email_guesses, team_email_guesses, principal_name, principal_email_guess, generic_email, email_type, name_review_needed, missing_email, data_score, plus metadata fields.
+    - **Output columns:** company_name, website, website_verified, facebook_url, contact_name, contact_names, contact_email, personal_email_guesses, team_email_guesses, principal_name, principal_email_guess, generic_email, email_type, name_review_needed, missing_email, data_score, confidence_score, enrichment_attempts, refinement_notes, plus metadata fields.
     - **Two output files only:** `unit8_leads_enriched.csv` (all usable/flagged leads) and `unit8_leads_excluded.csv` (no web presence at all).
 - **AI Lead Scoring:** Utilizes the OpenAI API to provide an AI Score (1-10) indicating the likelihood of needing office space, or suitability for Unit 8 in wellness mode, along with an AI Reason.
 - **Data Model:** `src/models.py` defines the `BusinessLead` dataclass with fields for dual-contact model, flags, and team emails.
@@ -41,12 +41,17 @@ The system is built around a modular Python architecture comprising scraping, en
 
 **Enrichment Pipeline v2 (Feb 2026):**
     - **Expanded page targeting:** 12 fallback URL paths (/team, /clinicians, /practitioners, /about-us, /staff, /meet-the-team, /our-story, /leadership, /who-we-are, /our-team, /therapists, /our-people) tried when nav discovery yields <3 pages.
-    - **Improved email extraction:** JS script scanning, full-text regex with domain validation, icon-only mailto parsing.
+    - **Improved email extraction:** JS script scanning, full-text regex with domain validation, icon-only mailto parsing, data-*/aria-*/alt attribute scanning.
+    - **Email classification:** email_type field set to personal/generic/both/guessed/none based on extraction results.
     - **LinkedIn search:** Multiple query strategies with wellness-specific role terms (practitioner, therapist, lead).
-    - **Multi-contact extraction:** Limit raised to 8 with role-based prioritization (founder/director > practice lead > senior > general staff). Global sorting before truncation ensures highest-priority contacts retained.
-    - **Name validation:** Handles Dr/BSc/MSc/PhD titles, qualification suffixes, hyphenated names, non-English names. Consonant cluster threshold relaxed from 5 to 6.
+    - **Multi-contact extraction:** Limit raised to 8 with role-based prioritization (founder/director > practice lead > senior > general staff). Global sorting before truncation ensures highest-priority contacts retained. Always attempted regardless of contact_name status.
+    - **Name validation:** Handles Dr/BSc/MSc/PhD titles, qualification suffixes, hyphenated names, non-English names. Consonant cluster threshold relaxed from 5 to 6. Common UK first name whitelist (~180 names) prevents over-aggressive filtering.
     - **Two-stage enrichment:** Stage 1 uses structured links/headings. Stage 2 deep DOM scan checks homepage AND all subpages for card-based/image alt/contextual patterns when Stage 1 finds nothing.
     - **Responsiveness check:** Early return when website is unresponsive or returns HTTP 400+, with failure logging.
+    - **Field preservation:** principal_name, principal_email_guess, generic_email, contact_names protected from overwrites unless new data is better.
+    - **Enrichment tracking:** enrichment_attempts counter tracks retry count per lead. refinement_notes logs scraping challenges (e.g., social_media_url, website_no_data, openai_triggered:reason).
+    - **Confidence scoring:** 1-5 score based on enrichment completeness (contact name, email quality, website verification, team contacts, principal data).
+    - **OpenAI trigger logging:** Logs specific reason why OpenAI was invoked (scraper_failed_no_contact, scraper_failed_no_email, etc.).
 
 **System Design Choices:**
 - **Modularity:** Separation of concerns into `scrapers/`, `enricher.py`, `ai_scorer.py`, and `refine_leads.py`.

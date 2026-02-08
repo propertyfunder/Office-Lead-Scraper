@@ -212,19 +212,64 @@ class LeadEnricher:
         has_guesses = bool(lead.personal_email_guesses)
         return has_primary and has_contacts and (has_generic or has_guesses)
     
+    def _classify_email_type(self, lead: BusinessLead) -> str:
+        has_personal = bool(lead.email and '@' in lead.email and not self._is_generic_email(lead.email))
+        has_generic = bool(lead.generic_email and '@' in lead.generic_email)
+        has_guesses = bool(lead.personal_email_guesses)
+        
+        if has_personal and has_generic:
+            return "both"
+        elif has_personal:
+            return "personal"
+        elif has_generic:
+            return "generic"
+        elif has_guesses:
+            return "guessed"
+        else:
+            return "none"
+    
+    def _calculate_confidence_score(self, lead: BusinessLead) -> str:
+        score = 0
+        
+        if lead.contact_name and self._is_valid_contact_name(lead.contact_name):
+            score += 1
+        if lead.email and '@' in lead.email and not self._is_generic_email(lead.email):
+            score += 1
+        elif lead.generic_email:
+            score += 0.5
+        if lead.website and lead.website_verified == "true":
+            score += 1
+        elif lead.website:
+            score += 0.5
+        if lead.contact_names and ';' in lead.contact_names:
+            score += 0.5
+        if lead.principal_name:
+            score += 0.5
+        if lead.personal_email_guesses:
+            score += 0.5
+        
+        final = min(5, max(1, round(score)))
+        return str(final)
+    
     def enrich(self, lead: BusinessLead, skip_if_complete: bool = True) -> BusinessLead:
         if skip_if_complete and self._is_fully_enriched(lead):
             lead.enrichment_status = "complete"
+            lead.email_type = self._classify_email_type(lead)
+            lead.confidence_score = self._calculate_confidence_score(lead)
             return lead
+        
+        current_attempts = int(lead.enrichment_attempts) if lead.enrichment_attempts and lead.enrichment_attempts.isdigit() else 0
+        lead.enrichment_attempts = str(current_attempts + 1)
         
         sources_tried = []
         website_text = ""
         ch_attempted = False
         website_attempted = False
         openai_used_this_call = False
+        notes = []
         
         try:
-            print(f"  Enriching: {lead.company_name}")
+            print(f"  Enriching: {lead.company_name} (attempt {lead.enrichment_attempts})")
             
             website_attempted = True
             is_social = lead.website and any(d in lead.website.lower() for d in self.social_media_domains)
@@ -232,6 +277,7 @@ class LeadEnricher:
                 print(f"    [Website] Social media URL: {lead.website[:50]} - flagged for manual review")
                 lead.tag = (lead.tag + ",facebook-only" if lead.tag else "facebook-only") if 'facebook' in lead.website.lower() or 'fb.com' in lead.website.lower() else lead.tag
                 log_failed_url(lead.website, lead.company_name, "Social media URL - cannot scrape")
+                notes.append("social_media_url")
             elif lead.website and 'find-and-update.company-information' not in lead.website:
                 print(f"    [Website] Checking {lead.website[:50]}...")
                 web_result = self._enrich_from_website(lead)
@@ -282,15 +328,17 @@ class LeadEnricher:
                             guesses = generate_email_guesses(c['name'], domain, known_format)
                             all_email_guesses.extend(guesses)
                     
-                    lead.contact_names = "; ".join(contact_names_list)
-                    lead.contact_titles = "; ".join(contact_titles_list)
+                    if _is_empty(lead.contact_names) or len(contact_names_list) > len(lead.contact_names.split(';')):
+                        lead.contact_names = "; ".join(contact_names_list)
+                        lead.contact_titles = "; ".join(contact_titles_list)
                     lead.multiple_contacts = "TRUE" if len(contact_names_list) > 1 else "FALSE"
                     
                     seen_guesses = []
                     for g in all_email_guesses:
                         if g not in seen_guesses:
                             seen_guesses.append(g)
-                    lead.personal_email_guesses = "; ".join(seen_guesses)
+                    if _is_empty(lead.personal_email_guesses) or len(seen_guesses) > len(lead.personal_email_guesses.split(';')):
+                        lead.personal_email_guesses = "; ".join(seen_guesses)
                     
                     if contact_names_list:
                         print(f"    [Website] Found {len(contact_names_list)} contacts: {', '.join(contact_names_list)}")
@@ -307,55 +355,68 @@ class LeadEnricher:
                 if not found_email and not found_contact and not web_contacts:
                     print(f"    [Website] No contact/email found")
                     log_failed_url(lead.website, lead.company_name, "No email or contact found on website")
+                    notes.append("website_no_data")
             elif not lead.website:
                 print(f"    [Website] Skipped - no website URL")
+                notes.append("no_website")
             
             if self._is_complete(lead):
                 lead.enrichment_source = sources_tried[0] if sources_tried else "website"
                 lead.enrichment_status = "complete"
+                lead.email_type = self._classify_email_type(lead)
+                lead.confidence_score = self._calculate_confidence_score(lead)
+                if notes:
+                    lead.refinement_notes = "; ".join(notes)
                 return lead
             
             ch_attempted = True
             if self.companies_house_api_key:
-                print(f"    [Companies House] Searching for director...")
-                ch_contact = self._get_director_from_companies_house(lead.company_name)
-                if ch_contact and self._is_valid_contact_name(ch_contact):
-                    ch_name = normalize_name(ch_contact)
-                    lead.principal_name = ch_name
-                    if lead.website:
-                        domain = extract_domain(lead.website)
-                        if domain:
-                            guessed = guess_email(lead.company_name, ch_name, domain)
-                            if guessed:
-                                lead.principal_email_guess = clean_email(guessed)
-                    sources_tried.append("companies_house")
-                    print(f"    [Companies House] Found director: {lead.principal_name}")
-                    if lead.principal_email_guess:
-                        print(f"    [Companies House] Director email guess: {lead.principal_email_guess}")
-                    
-                    if _is_empty(lead.contact_name):
-                        lead.contact_name = ch_name
-                        lead.contact_verified = "true"
-                        lead.enrichment_source = "companies_house"
-                        
-                        if _is_empty(lead.email) and lead.principal_email_guess:
-                            lead.email = lead.principal_email_guess
-                            lead.email_guessed = "true"
-                        if lead.website and _is_empty(lead.contact_names):
-                            lead.contact_names = ch_name
-                            lead.multiple_contacts = "FALSE"
+                if _is_empty(lead.principal_name):
+                    print(f"    [Companies House] Searching for director...")
+                    ch_contact = self._get_director_from_companies_house(lead.company_name)
+                    if ch_contact and self._is_valid_contact_name(ch_contact):
+                        ch_name = normalize_name(ch_contact)
+                        lead.principal_name = ch_name
+                        if lead.website:
                             domain = extract_domain(lead.website)
                             if domain:
-                                guesses = generate_email_guesses(ch_name, domain)
-                                lead.personal_email_guesses = "; ".join(guesses)
+                                guessed = guess_email(lead.company_name, ch_name, domain)
+                                if guessed:
+                                    lead.principal_email_guess = clean_email(guessed)
+                        sources_tried.append("companies_house")
+                        print(f"    [Companies House] Found director: {lead.principal_name}")
+                        if lead.principal_email_guess:
+                            print(f"    [Companies House] Director email guess: {lead.principal_email_guess}")
+                        
+                        if _is_empty(lead.contact_name):
+                            lead.contact_name = ch_name
+                            lead.contact_verified = "true"
+                            lead.enrichment_source = "companies_house"
+                            
+                            if _is_empty(lead.email) and lead.principal_email_guess:
+                                lead.email = lead.principal_email_guess
+                                lead.email_guessed = "true"
+                            if lead.website and _is_empty(lead.contact_names):
+                                lead.contact_names = ch_name
+                                lead.multiple_contacts = "FALSE"
+                                domain = extract_domain(lead.website)
+                                if domain:
+                                    guesses = generate_email_guesses(ch_name, domain)
+                                    lead.personal_email_guesses = "; ".join(guesses)
+                    else:
+                        print(f"    [Companies House] No director found")
                 else:
-                    print(f"    [Companies House] No director found")
+                    print(f"    [Companies House] Skipped - principal_name already set: {lead.principal_name}")
             elif not self.companies_house_api_key:
                 print(f"    [Companies House] Skipped - no API key")
             
             if self._is_complete(lead):
                 lead.enrichment_source = sources_tried[0] if sources_tried else "companies_house"
                 lead.enrichment_status = "complete"
+                lead.email_type = self._classify_email_type(lead)
+                lead.confidence_score = self._calculate_confidence_score(lead)
+                if notes:
+                    lead.refinement_notes = "; ".join(notes)
                 return lead
             
             ch_yielded_data = "companies_house" in sources_tried
@@ -389,11 +450,16 @@ class LeadEnricher:
             if self._is_complete(lead):
                 lead.enrichment_source = sources_tried[0] if sources_tried else "linkedin"
                 lead.enrichment_status = "complete"
+                lead.email_type = self._classify_email_type(lead)
+                lead.confidence_score = self._calculate_confidence_score(lead)
+                if notes:
+                    lead.refinement_notes = "; ".join(notes)
                 return lead
             
             record_key = lead.place_id or lead.company_name
             calls_for_record = self.openai_calls_per_record.get(record_key, 0)
             
+            openai_reason = ""
             should_use_openai = (
                 self.openai_api_key and
                 (_is_empty(lead.contact_name) or _is_empty(lead.email)) and
@@ -401,6 +467,14 @@ class LeadEnricher:
                 calls_for_record < OPENAI_MAX_CALLS_PER_RECORD and
                 self.cost_tracker.can_make_call()
             )
+            
+            if should_use_openai:
+                if _is_empty(lead.contact_name) and _is_empty(lead.email):
+                    openai_reason = "scraper_failed_no_contact_no_email"
+                elif _is_empty(lead.contact_name):
+                    openai_reason = "scraper_failed_no_contact"
+                elif _is_empty(lead.email):
+                    openai_reason = "scraper_failed_no_email"
             
             if lead.contact_name and lead.email:
                 print(f"    [OpenAI] Skipped - already has email and contact_name")
@@ -418,6 +492,8 @@ class LeadEnricher:
                         web_fallback = self._enrich_from_website(lead)
                         website_text = web_fallback.get('text', '')
                     if website_text:
+                        print(f"    [OpenAI] Triggered: {openai_reason}")
+                        notes.append(f"openai_triggered:{openai_reason}")
                         ai_contact, ai_email = self._openai_extract(lead, website_text)
                         self.openai_calls_per_record[record_key] = calls_for_record + 1
                         
@@ -445,6 +521,7 @@ class LeadEnricher:
             
         except Exception as e:
             print(f"  Error enriching {lead.company_name}: {e}")
+            notes.append(f"error:{str(e)[:80]}")
         
         if sources_tried:
             lead.enrichment_source = sources_tried[0]
@@ -452,6 +529,12 @@ class LeadEnricher:
             lead.enrichment_source = "not_found"
         
         lead.enrichment_status = self._determine_status(lead)
+        lead.email_type = self._classify_email_type(lead)
+        lead.confidence_score = self._calculate_confidence_score(lead)
+        if notes:
+            existing_notes = lead.refinement_notes
+            new_notes = "; ".join(notes)
+            lead.refinement_notes = f"{existing_notes}; {new_notes}".strip("; ") if existing_notes else new_notes
         object.__setattr__(lead, '_openai_used_this_call', openai_used_this_call)
         
         return lead
@@ -824,6 +907,21 @@ class LeadEnricher:
                     if not any(x in email.lower() for x in junk_domains):
                         return email
 
+        email_regex = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,7}'
+        
+        for elem in soup.find_all(True):
+            for attr_name, attr_val in elem.attrs.items():
+                if attr_name in ('href',):
+                    continue
+                if isinstance(attr_val, str) and '@' in attr_val:
+                    if attr_name.startswith('data-') or attr_name.startswith('aria-') or attr_name == 'alt' or attr_name == 'title' or attr_name == 'content':
+                        email_match = re.search(email_regex, attr_val)
+                        if email_match:
+                            email = email_match.group(0)
+                            if not any(x in email.lower() for x in junk_domains):
+                                if not site_domain or site_domain.replace('www.', '').lower() in email.lower().split('@')[1]:
+                                    return email
+        
         raw_html = str(soup)
         raw_mailto = re.findall(r'mailto:([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,7})', raw_html, re.I)
         for email in raw_mailto:
@@ -1204,6 +1302,30 @@ class LeadEnricher:
                     return potential_name[:50]
         return ""
     
+    COMMON_UK_FIRST_NAMES = {
+        'adam', 'alan', 'alex', 'alice', 'amanda', 'amy', 'andrew', 'angela', 'anna', 'anne',
+        'anthony', 'beth', 'brian', 'bruce', 'carl', 'carol', 'caroline', 'catherine', 'charlotte',
+        'chris', 'christine', 'claire', 'clare', 'colin', 'craig', 'daniel', 'david', 'dawn',
+        'deborah', 'diane', 'donna', 'dorothy', 'edward', 'elizabeth', 'emma', 'emily', 'eric',
+        'fiona', 'frances', 'frank', 'gareth', 'gary', 'gemma', 'george', 'gill', 'glen', 'glenn',
+        'gordon', 'grace', 'graham', 'grant', 'greg', 'hannah', 'harry', 'hayley', 'helen',
+        'holly', 'ian', 'jack', 'james', 'jane', 'janet', 'jason', 'jean', 'jennifer', 'jenny',
+        'jessica', 'jill', 'joan', 'joanne', 'joe', 'john', 'jonathan', 'joseph', 'julie', 'june',
+        'karen', 'kate', 'katherine', 'kathleen', 'kathryn', 'katy', 'keith', 'kelly', 'ken',
+        'kevin', 'kim', 'kirsty', 'laura', 'lauren', 'lee', 'leigh', 'linda', 'lisa', 'louise',
+        'lucy', 'lynn', 'malcolm', 'margaret', 'maria', 'marie', 'mark', 'martin', 'mary',
+        'matthew', 'max', 'megan', 'michael', 'michelle', 'mike', 'natalie', 'neil', 'nicholas',
+        'nick', 'nicola', 'nigel', 'oliver', 'olivia', 'pamela', 'patricia', 'patrick', 'paul',
+        'paula', 'penny', 'peter', 'philip', 'rachel', 'rebecca', 'richard', 'robert', 'robin',
+        'roger', 'rosemary', 'ross', 'ruth', 'sally', 'sam', 'samantha', 'sandra', 'sarah',
+        'scott', 'sean', 'sharon', 'simon', 'sophie', 'stephen', 'stuart', 'sue', 'susan',
+        'teresa', 'thomas', 'tim', 'timothy', 'tom', 'tony', 'tracy', 'victoria', 'wayne',
+        'wendy', 'william', 'zoe',
+        'amir', 'anita', 'asha', 'deepak', 'fatima', 'hassan', 'indira', 'jasmine', 'kamal',
+        'kumar', 'lakshmi', 'meera', 'mohammad', 'nadia', 'priya', 'raj', 'ravi', 'sanjay',
+        'tara', 'vikram', 'yusuf', 'zara',
+    }
+    
     def _looks_like_name(self, text: str) -> bool:
         if not text or len(text) < 4 or len(text) > 60:
             return False
@@ -1254,6 +1376,10 @@ class LeadEnricher:
                         'surgery', 'hospital', 'pharmacy', 'university', 'college'}
         if any(w.lower() in exclude_words for w in name_words):
             return False
+        
+        first_name_lower = name_words[0].replace("'", "").replace("-", "").lower()
+        if first_name_lower in self.COMMON_UK_FIRST_NAMES:
+            return True
         
         for word in name_words:
             clean_word = word.replace("'", "").replace("-", "").replace(".", "")

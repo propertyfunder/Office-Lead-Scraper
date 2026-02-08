@@ -40,6 +40,9 @@ class BusinessLead:
     missing_email: str = ""
     website_verified: str = ""
     data_score: str = ""
+    enrichment_attempts: str = ""
+    confidence_score: str = ""
+    refinement_notes: str = ""
     
     def to_dict(self) -> dict:
         return asdict(self)

@@ -82,6 +82,17 @@ def get_stats(leads, category=None):
 
     pct_complete = round((enriched_complete / total * 100), 1) if total > 0 else 0
 
+    name_review = sum(1 for l in leads if l.get('name_review_needed') == 'True')
+    missing_email_count = sum(1 for l in leads if l.get('missing_email') == 'True')
+    
+    confidence_scores = [int(l['confidence_score']) for l in leads if l.get('confidence_score') and l['confidence_score'].isdigit()]
+    avg_confidence = round(sum(confidence_scores) / len(confidence_scores), 1) if confidence_scores else 0
+    
+    email_types = {}
+    for l in leads:
+        et = l.get('email_type', 'none') or 'none'
+        email_types[et] = email_types.get(et, 0) + 1
+
     return {
         'total': total,
         'with_email': with_email,
@@ -93,7 +104,11 @@ def get_stats(leads, category=None):
         'email_guessed': email_guessed,
         'contact_verified': contact_verified,
         'avg_score': round(avg_score, 1),
-        'pct_complete': pct_complete
+        'pct_complete': pct_complete,
+        'name_review': name_review,
+        'missing_email': missing_email_count,
+        'avg_confidence': avg_confidence,
+        'email_types': email_types
     }
 
 @app.route('/')
@@ -167,11 +182,12 @@ def download_csv(category):
         'principal_name', 'principal_email_guess',
         'generic_email', 'email_type',
         'name_review_needed', 'missing_email',
-        'data_score',
+        'data_score', 'confidence_score',
         'sector', 'location', 'phone', 'linkedin',
         'ai_score', 'ai_reason', 'tag', 'google_rating',
         'category', 'place_id', 'search_town',
-        'enrichment_source', 'enrichment_status'
+        'enrichment_source', 'enrichment_status',
+        'enrichment_attempts', 'refinement_notes'
     ]
     writer = csv.DictWriter(output, fieldnames=fieldnames, extrasaction='ignore')
     writer.writeheader()

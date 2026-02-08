@@ -1,0 +1,83 @@
+✅ Key Objectives for src/enricher.py Improvements
+Detect hidden or icon-based email links (e.g. <a href="mailto:..."><span>📧</span></a>)
+Improve extraction of contact names from non-structured HTML
+Apply fallback logic for multi-contact extraction
+Prevent data overwrites from wiping valid enrichment fields
+Allow enhanced fallback scraping when initial pass fails
+Safely validate contact names without over-aggressive filtering
+🔧 Module-by-Module Improvements
+🔹 _find_email(self, soup, domain)
+Goal: Detect all email links, including icon-only mailto anchors.
+Direction:
+Extend search to include:
+All <a> tags with href starting with mailto: regardless of inner content.
+Also look for email addresses in:
+href, data-*, aria-*, and even image alt text
+Skip duplicates with a domain-aware uniqueness check
+Classify emails as:
+generic: if matches known prefixes like info@, support@
+direct: if structured like firstname.lastname@
+🔹 _find_contact_name(self, soup)
+Goal: Identify real contact names even in unstructured content.
+Direction:
+First pass: existing methods using <strong>, <h2>, and schema.org structures
+Second pass: new fuzzy regex search for name-like patterns in:
+<div>, <span>, <p> elements
+Use regex: r'\b[A-Z][a-z]{2,10} [A-Z][a-z]{2,12}\b'
+Add scoring: prioritize names from About/Team pages
+Optional: compare with known director names from Companies House and promote matches
+🔹 _looks_like_name(name)
+Goal: Avoid over-zealous name rejection
+Direction:
+Adjust fake name detection:
+Accept common UK name patterns even with leading consonant clusters (e.g. Chris, Graham)
+Add whitelist (Lucy, Sophie, Claire, etc.)
+Flag gibberish with trigram analysis: e.g., reject Spj, Wlo, Ixr
+🔹 _enrich_multi_contact(self, soup, domain)
+Goal: Always try multi-contact enrichment regardless of contact_name status.
+Direction:
+Always parse team pages, about sections, or footers for potential additional contacts
+Build list of contact_names[] and generate multiple email_guesses[]:
+firstname.lastname@domain
+f.lastname@domain
+firstnamelastname@domain
+initials@domain (if known)
+Include as secondary enrichment fields (don’t overwrite contact_name)
+🔹 _discover_nav_pages(self, soup)
+Goal: Expand fallback logic for pages likely to contain team/principal info
+Direction:
+Always append common subpaths for contact/staff pages:
+/about, /team, /our-people, /clinicians, /therapists, /staff, /directors
+Ensure these are scraped even if not discovered in nav HTML
+🔹 _process_openai(self, ...)
+Goal: Improve fallback extraction via LLM when scraping fails
+Direction:
+Make OpenAI enrichment opt-in only when:
+Website is verified AND contact is missing
+Or: contact appears gibberish AND contact_page_html is available
+Ensure OpenAI call returns contact_name, role, and email_guess
+Log reason why OpenAI was triggered (e.g., scraper_failed)
+🔹 enrich(self, lead)
+Goal: Protect valid fields from overwriting and control enrichment flow.
+Direction:
+Add checks to preserve principal_name and principal_email_guess if already valid
+Chain enrichment attempts:
+Companies House → Website scraping → Fallback scraping → OpenAI → LinkedIn
+Only promote fallback values if primary attempts fail
+🧼 New Safeguards to Add
+Safeguard	Description
+🧪 Field preservation	Avoid overwriting non-empty contact_name, principal_name, generic_email, or website_verified unless force=True
+📉 Retry tracking	Add enrichment_attempts field to limit re-enrichment of low-quality leads
+🏷 Confidence score	Assign each record a confidence score from 1–5 based on enrichment depth
+⚠️ Suspect flags	Flag leads with no name/email/website for manual review, even if scraped
+📁 Output CSV Improvements
+Column	What to Add
+contact_name	Main scraped contact
+contact_names[]	List of other team/staff names (if found)
+principal_name	Companies House director
+contact_email	Best available contact email
+generic_email	Fallback generic email
+email_guesses[]	All algorithmic guesses
+email_type	One of personal, generic, both, or none
+confidence_score	1–5 based on completeness
+refinement_notes	Free-text field for known scraping challenges
