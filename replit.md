@@ -54,9 +54,15 @@ The system is built around a modular Python architecture comprising scraping, en
     - **Contact backfill:** When principal_name exists but contact_name is missing, automatically backfills contact_name from principal with refinement_notes logging.
     - **Suspicious name detection:** _is_suspicious_name method checks for unusual bigrams, repeated characters, low vowel ratio. When suspicious name found with valid team alternatives, assigns best team member and logs replacement in refinement_notes.
     - **Enrichment tracking:** enrichment_attempts counter tracks retry count per lead. refinement_notes logs scraping challenges (e.g., social_media_url, website_no_data, openai_triggered:reason, contact_backfilled_from_principal, principal_email_guessed, suspicious_name_replaced, invalid_name_rejected).
-    - **Confidence scoring:** 1-5 score based on enrichment completeness (contact name, email quality, website verification, team contacts, principal data).
+    - **Confidence scoring:** 1-5 score based on enrichment completeness (contact name, email quality, website verification, team contacts, principal data). Bonuses: +0.5 for UK whitelisted first names, +0.5 for Dr/Prof titles. Penalty: -1 for placeholder names that couldn't be replaced.
     - **Email classification (refined):** email_type checks primary email field AND generic_email field. Personal classification requires name-part match in email local part or non-guessed status. Guessed emails without name match classified as 'guessed'.
     - **OpenAI trigger logging:** Logs specific reason why OpenAI was invoked (scraper_failed_no_contact, scraper_failed_no_email, etc.).
+    - **Contact source tracking:** contact_source field tracks origin of contact_name (website/companies_house/linkedin/openai/backfilled/unknown) for audit trail.
+    - **Mailshot categorization:** mailshot_category auto-classifies leads as do_not_email (no usable email), priority (personal/guessed/team/principal email), or fallback (generic email only). Considers contact_email, team_email_guesses, personal_email_guesses, and principal_email_guess.
+    - **Vanity name detection:** _is_vanity_name flags when contact_name matches company_name (after stripping Ltd/LLP/etc and stop words). Logs vanity_name_match in refinement_notes.
+    - **Enhanced email guess validation:** 6 most common patterns, regex-validated, domain checked for TLD, lowercase normalized, deduplicated.
+    - **last_enriched_date:** Tracks date of most recent enrichment run per lead.
+    - **Dashboard badges:** Mailshot category badges (priority=green, fallback=amber, DNE=red), contact source badges (purple), alongside existing confidence/email type badges.
 
 **System Design Choices:**
 - **Modularity:** Separation of concerns into `scrapers/`, `enricher.py`, `ai_scorer.py`, and `refine_leads.py`.

@@ -43,6 +43,9 @@ class BusinessLead:
     enrichment_attempts: str = ""
     confidence_score: str = ""
     refinement_notes: str = ""
+    contact_source: str = ""
+    last_enriched_date: str = ""
+    mailshot_category: str = ""
     
     def to_dict(self) -> dict:
         return asdict(self)

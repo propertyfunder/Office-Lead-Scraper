@@ -88,27 +88,29 @@ def generate_email_guesses(contact_name: str, domain: str, known_format: str = "
         return []
     first_name = re.sub(r'[^a-z]', '', name_parts[0])
     last_name = re.sub(r'[^a-z]', '', name_parts[-1])
-    domain = domain.replace("www.", "").replace("http://", "").replace("https://", "").split("/")[0]
-    if not first_name or not last_name or not domain:
+    domain = domain.replace("www.", "").replace("http://", "").replace("https://", "").split("/")[0].strip().lower()
+    if not first_name or not last_name or not domain or '.' not in domain:
         return []
     guesses = [
         f"{first_name}.{last_name}@{domain}",
         f"{first_name[0]}.{last_name}@{domain}",
-        f"{first_name}{last_name[0]}@{domain}",
-        f"{first_name[0]}{last_name[0]}@{domain}",
-        f"{last_name}@{domain}",
         f"{first_name}@{domain}",
+        f"{last_name}@{domain}",
         f"{first_name}_{last_name}@{domain}",
         f"{first_name}{last_name}@{domain}",
     ]
-    if known_format and known_format not in guesses:
-        guesses.insert(0, known_format)
-    elif known_format and known_format in guesses:
-        guesses.remove(known_format)
-        guesses.insert(0, known_format)
+    if known_format:
+        known_clean = known_format.strip().lower()
+        if known_clean not in guesses:
+            guesses.insert(0, known_clean)
+        else:
+            guesses.remove(known_clean)
+            guesses.insert(0, known_clean)
+    valid_email_re = re.compile(r'^[a-z][a-z0-9._%+-]*@[a-z0-9.-]+\.[a-z]{2,7}$')
     seen = []
     for g in guesses:
-        if g not in seen:
+        g = g.strip().lower().rstrip('.,;:!?')
+        if g not in seen and valid_email_re.match(g):
             seen.append(g)
     return seen
 
@@ -153,15 +155,17 @@ def normalize_name(name: str) -> str:
 def save_leads_to_csv(leads: List[BusinessLead], filepath: str, mode: str = 'a'):
     file_exists = os.path.exists(filepath) and os.path.getsize(filepath) > 0
     fieldnames = [
-        'company_name', 'website', 'sector', 'contact_name', 
+        'company_name', 'website', 'sector', 'contact_name', 'contact_source',
         'email', 'phone', 'linkedin', 'location', 'employee_count', 
         'source', 'ai_score', 'ai_reason', 'tag', 'google_rating',
-        'place_id', 'search_town', 'category', 'enrichment_source', 'enrichment_status', 
+        'place_id', 'search_town', 'category', 'enrichment_source', 'enrichment_status',
+        'enrichment_attempts', 'last_enriched_date',
         'ai_enriched', 'email_guessed', 'contact_verified',
-        'generic_email', 'contact_names', 'personal_email_guesses', 'contact_titles', 'multiple_contacts'
+        'generic_email', 'contact_names', 'personal_email_guesses', 'contact_titles', 'multiple_contacts',
+        'confidence_score', 'email_type', 'mailshot_category', 'refinement_notes'
     ]
     with open(filepath, mode, newline='', encoding='utf-8') as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction='ignore')
         if not file_exists or mode == 'w':
             writer.writeheader()
         for lead in leads:

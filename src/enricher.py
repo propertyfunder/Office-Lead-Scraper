@@ -248,6 +248,12 @@ class LeadEnricher:
         
         if lead.contact_name and self._is_valid_contact_name(lead.contact_name):
             score += 1
+            first_name = lead.contact_name.strip().split()[0].lower().replace("'","").replace("-","") if lead.contact_name.strip().split() else ""
+            if first_name in self.COMMON_UK_FIRST_NAMES:
+                score += 0.5
+            has_title = any(lead.contact_name.lower().startswith(t) for t in ['dr ', 'dr.', 'prof ', 'prof.'])
+            if has_title:
+                score += 0.5
         if lead.email and '@' in lead.email and not self._is_generic_email(lead.email):
             score += 1
         elif lead.generic_email:
@@ -263,8 +269,52 @@ class LeadEnricher:
         if lead.personal_email_guesses:
             score += 0.5
         
+        notes = lead.refinement_notes or ""
+        if 'possible_placeholder_name' in notes and 'suspicious_name_replaced' not in notes:
+            score -= 1
+        
         final = min(5, max(1, round(score)))
         return str(final)
+    
+    def _is_vanity_name(self, contact_name: str, company_name: str) -> bool:
+        if not contact_name or not company_name:
+            return False
+        cn = re.sub(r'[^a-z\s]', '', contact_name.lower()).strip()
+        co = re.sub(r'[^a-z\s]', '', company_name.lower()).strip()
+        if not cn or not co:
+            return False
+        if cn == co:
+            return True
+        co_words = set(co.split())
+        cn_words = set(cn.split())
+        stop = {'the', 'and', 'of', 'ltd', 'limited', 'llp', 'uk', 'plc', 'inc'}
+        co_words -= stop
+        cn_words -= stop
+        if co_words and cn_words and cn_words == co_words:
+            return True
+        if len(cn) > 3 and (cn in co or co in cn):
+            return True
+        return False
+    
+    def _classify_mailshot(self, lead: BusinessLead) -> str:
+        contact_email = getattr(lead, 'contact_email', '') or ''
+        has_personal = (lead.email and '@' in lead.email and not self._is_generic_email(lead.email)) or \
+                       (contact_email and '@' in contact_email and not self._is_generic_email(contact_email))
+        has_generic = bool(lead.generic_email and '@' in lead.generic_email)
+        has_guesses = bool(lead.personal_email_guesses)
+        has_team_guesses = bool(getattr(lead, 'team_email_guesses', '') or '')
+        has_principal = bool(lead.principal_email_guess)
+        has_any = has_personal or has_generic or has_guesses or has_team_guesses or has_principal
+        
+        if not has_any:
+            return "do_not_email"
+        elif has_personal:
+            return "priority"
+        elif has_guesses or has_principal or has_team_guesses:
+            return "priority"
+        elif has_generic:
+            return "fallback"
+        return "do_not_email"
     
     def enrich(self, lead: BusinessLead, skip_if_complete: bool = True) -> BusinessLead:
         if skip_if_complete and self._is_fully_enriched(lead):
@@ -275,6 +325,7 @@ class LeadEnricher:
         
         current_attempts = int(lead.enrichment_attempts) if lead.enrichment_attempts and lead.enrichment_attempts.isdigit() else 0
         lead.enrichment_attempts = str(current_attempts + 1)
+        lead.last_enriched_date = str(date.today())
         
         sources_tried = []
         website_text = ""
@@ -282,6 +333,7 @@ class LeadEnricher:
         website_attempted = False
         openai_used_this_call = False
         notes = []
+        contact_source = lead.contact_source or ""
         
         no_website = not lead.website
         no_facebook = not lead.facebook_url
@@ -330,32 +382,48 @@ class LeadEnricher:
                         print(f"    [Website] Found email: {lead.email}")
                 if found_contact and _is_empty(lead.contact_name):
                     if self._is_valid_contact_name(found_contact):
-                        if self._is_suspicious_name(found_contact) and web_contacts:
+                        if self._is_domain_name(found_contact, lead.website):
+                            notes.append(f"placeholder_name_detected:{found_contact}")
+                            print(f"    [Website] Domain-matching name rejected: {found_contact}")
+                        elif self._is_vanity_name(found_contact, lead.company_name):
+                            notes.append(f"vanity_name_match:{found_contact}")
+                            print(f"    [Website] Vanity name (matches company): {found_contact}")
+                            if web_contacts:
+                                better = next((c['name'] for c in web_contacts if self._is_valid_contact_name(c['name']) and not self._is_vanity_name(c['name'], lead.company_name)), None)
+                                if better:
+                                    lead.contact_name = normalize_name(better)
+                                    contact_source = "website"
+                                    notes.append(f"vanity_replaced_with:{better}")
+                        elif self._is_suspicious_name(found_contact) and web_contacts:
                             better = next((c['name'] for c in web_contacts if self._is_valid_contact_name(c['name']) and not self._is_suspicious_name(c['name'])), None)
                             if better:
                                 lead.contact_name = normalize_name(better)
+                                contact_source = "website"
                                 notes.append(f"suspicious_name_replaced:{found_contact}")
                                 print(f"    [Website] Suspicious name '{found_contact}' replaced with team member: {lead.contact_name}")
                             else:
                                 lead.contact_name = normalize_name(found_contact)
+                                contact_source = "website"
                                 notes.append(f"possible_placeholder_name:{found_contact}")
                                 print(f"    [Website] Found contact (flagged suspicious): {lead.contact_name}")
                         else:
                             lead.contact_name = normalize_name(found_contact)
+                            contact_source = "website"
                             print(f"    [Website] Found contact: {lead.contact_name}")
-                        lead.contact_verified = "true"
-                        if "website" not in sources_tried:
-                            sources_tried.append("website")
-                        
-                        if _is_empty(lead.email) and lead.website:
-                            domain = extract_domain(lead.website)
-                            guessed = guess_email(lead.company_name, lead.contact_name, domain)
-                            if guessed:
-                                lead.email = clean_email(guessed)
-                                lead.email_guessed = "true"
-                                print(f"    [Guessed] Email: {lead.email}")
+                        if lead.contact_name:
+                            lead.contact_verified = "true"
+                            if "website" not in sources_tried:
+                                sources_tried.append("website")
+                            
+                            if _is_empty(lead.email) and lead.website:
+                                domain = extract_domain(lead.website)
+                                guessed = guess_email(lead.company_name, lead.contact_name, domain)
+                                if guessed:
+                                    lead.email = clean_email(guessed)
+                                    lead.email_guessed = "true"
+                                    print(f"    [Guessed] Email: {lead.email}")
                     else:
-                        notes.append(f"invalid_name_rejected:{found_contact[:40]}")
+                        notes.append(f"rejected_garbage_name:{found_contact[:40]}")
                 
                 if web_contacts:
                     domain = extract_domain(lead.website)
@@ -438,6 +506,7 @@ class LeadEnricher:
                             lead.contact_name = ch_name
                             lead.contact_verified = "true"
                             lead.enrichment_source = "companies_house"
+                            contact_source = "companies_house"
                             
                             if _is_empty(lead.email) and lead.principal_email_guess:
                                 lead.email = lead.principal_email_guess
@@ -468,6 +537,7 @@ class LeadEnricher:
             if lead.principal_name and _is_empty(lead.contact_name):
                 lead.contact_name = lead.principal_name
                 lead.contact_verified = "false"
+                contact_source = "backfilled"
                 notes.append("contact_backfilled_from_principal")
                 print(f"    [Backfill] contact_name set from principal: {lead.principal_name}")
                 if _is_empty(lead.email) and lead.principal_email_guess:
@@ -501,6 +571,7 @@ class LeadEnricher:
                     if linkedin_contact and self._is_valid_contact_name(linkedin_contact):
                         lead.contact_name = normalize_name(linkedin_contact)
                         lead.contact_verified = "false"
+                        contact_source = "linkedin"
                         sources_tried.append("linkedin")
                         print(f"    [LinkedIn] Found contact: {lead.contact_name}")
                         
@@ -573,6 +644,7 @@ class LeadEnricher:
                             lead.contact_name = normalize_name(ai_contact)
                             lead.ai_enriched = "true"
                             openai_used_this_call = True
+                            contact_source = "openai"
                             sources_tried.append("openai")
                             print(f"    [OpenAI] Extracted contact: {lead.contact_name}")
                             
@@ -600,9 +672,18 @@ class LeadEnricher:
         elif not lead.enrichment_source:
             lead.enrichment_source = "not_found"
         
+        if contact_source:
+            lead.contact_source = contact_source
+        elif lead.contact_name and not lead.contact_source:
+            lead.contact_source = "unknown"
+        
+        if lead.contact_name and self._is_vanity_name(lead.contact_name, lead.company_name):
+            notes.append("vanity_name_match:contact_is_company_name")
+        
         lead.enrichment_status = self._determine_status(lead)
         lead.email_type = self._classify_email_type(lead)
         lead.confidence_score = self._calculate_confidence_score(lead)
+        lead.mailshot_category = self._classify_mailshot(lead)
         if notes:
             existing_notes = lead.refinement_notes
             new_notes = "; ".join(notes)
@@ -627,11 +708,24 @@ class LeadEnricher:
     def _is_complete(self, lead: BusinessLead) -> bool:
         return self._is_valid_contact_name(lead.contact_name) and bool(lead.email and '@' in lead.email)
     
+    NOUN_PLACEHOLDERS = {
+        'clinic room', 'wellbeing space', 'treatment room', 'therapy room',
+        'consultation room', 'private room', 'meeting room', 'office space',
+        'ground floor', 'first floor', 'second floor', 'main office',
+        'front desk', 'quick links', 'delivery suite', 'regional care',
+        'my healthy', 'read more', 'learn more', 'click here',
+        'view all', 'book now', 'find out', 'get started'
+    }
+
+    SHORT_VALID_NAMES = {'ali', 'jo', 'al', 'ed', 'em', 'mo', 'bo', 'ty', 'di', 'lu', 'vi', 'aj', 'jd', 'li', 'an'}
+
     def _is_valid_contact_name(self, name: str) -> bool:
         if not name or len(name.strip()) < 3:
             return False
         name_lower = name.strip().lower()
         if name_lower in self.invalid_names:
+            return False
+        if name_lower in self.NOUN_PLACEHOLDERS:
             return False
         words = name_lower.split()
         
@@ -649,6 +743,10 @@ class LeadEnricher:
         
         if len(name_words) < 2:
             return False
+        for w in name_words:
+            alpha = re.sub(r'[^a-z]', '', w.replace("'", "").replace("-", ""))
+            if len(alpha) <= 2 and alpha not in self.SHORT_VALID_NAMES:
+                return False
         if any(word in self.invalid_names for word in name_words):
             return False
         if any(phrase in ' '.join(name_words) for phrase in self.invalid_name_phrases):
@@ -670,7 +768,7 @@ class LeadEnricher:
                          'solutions', 'consulting', 'consultancy', 'foundation', 'trust',
                          'partnership', 'potential', 'limitless', 'wellness', 'fitness',
                          'studio', 'studios', 'academy', 'institute', 'school', 'college',
-                         'nursery'}
+                         'nursery', 'room', 'space', 'floor', 'desk', 'office'}
         if any(w.rstrip("'s") in business_words for w in name_words):
             return False
         if len(name_words) > 4:
@@ -687,6 +785,20 @@ class LeadEnricher:
         if re.search(r'[^aeiouy]{6,}', alpha_only):
             return False
         return True
+    
+    def _is_domain_name(self, contact_name: str, website: str) -> bool:
+        if not contact_name or not website:
+            return False
+        domain = extract_domain(website).replace('www.', '').lower()
+        domain_base = domain.split('.')[0] if '.' in domain else domain
+        contact_lower = contact_name.strip().lower().replace(' ', '')
+        if contact_lower == domain_base:
+            return True
+        contact_spaced = contact_name.strip().lower()
+        domain_words = re.sub(r'[^a-z]', ' ', domain_base).strip()
+        if contact_spaced == domain_words and len(domain_words) > 3:
+            return True
+        return False
     
     def _is_suspicious_name(self, name: str) -> bool:
         if not name:

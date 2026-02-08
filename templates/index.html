@@ -224,6 +224,29 @@
             margin-left: 2px;
             text-transform: uppercase;
         }
+        .mailshot-badge {
+            display: inline-block;
+            padding: 2px 5px;
+            border-radius: 3px;
+            font-size: 0.6rem;
+            font-weight: 600;
+            margin-left: 2px;
+            text-transform: uppercase;
+        }
+        .mc-priority { background: #d1fae5; color: #065f46; }
+        .mc-fallback { background: #fef3c7; color: #92400e; }
+        .mc-dne { background: #fee2e2; color: #991b1b; }
+        .source-badge {
+            display: inline-block;
+            padding: 2px 5px;
+            border-radius: 3px;
+            font-size: 0.6rem;
+            font-weight: 600;
+            background: #f3e8ff;
+            color: #6b21a8;
+            margin-left: 2px;
+            text-transform: uppercase;
+        }
         
         .empty-state {
             text-align: center;
@@ -407,6 +430,13 @@
                                 {% endif %}
                                 {% if lead.email_type and lead.email_type != 'none' %}
                                     <span class="email-type-badge" title="Email type: {{ lead.email_type }}">{{ lead.email_type[:3] }}</span>
+                                {% endif %}
+                                {% if lead.mailshot_category %}
+                                    {% set mc_class = 'mc-priority' if lead.mailshot_category == 'priority' else ('mc-fallback' if lead.mailshot_category == 'fallback' else 'mc-dne') %}
+                                    <span class="mailshot-badge {{ mc_class }}" title="Mailshot: {{ lead.mailshot_category }}">{{ 'DNE' if lead.mailshot_category == 'do_not_email' else lead.mailshot_category[:4] }}</span>
+                                {% endif %}
+                                {% if lead.contact_source and lead.contact_source != 'unknown' %}
+                                    <span class="source-badge" title="Contact source: {{ lead.contact_source }}">{{ lead.contact_source[:3] }}</span>
                                 {% endif %}
                             </td>
                             <td>
@@ -602,6 +632,11 @@
                 if (lead.data_score) flagCell += `<span class="data-score-badge ds-${lead.data_score}">${lead.data_score}</span>`;
                 if (lead.confidence_score) flagCell += ` <span class="confidence-badge conf-${lead.confidence_score}" title="Confidence: ${lead.confidence_score}/5${lead.refinement_notes ? ' | ' + lead.refinement_notes : ''}">C${lead.confidence_score}</span>`;
                 if (lead.email_type && lead.email_type !== 'none') flagCell += ` <span class="email-type-badge" title="Email type: ${lead.email_type}">${lead.email_type.substring(0,3)}</span>`;
+                if (lead.mailshot_category) {
+                    let mcClass = lead.mailshot_category === 'priority' ? 'mc-priority' : lead.mailshot_category === 'fallback' ? 'mc-fallback' : 'mc-dne';
+                    flagCell += ` <span class="mailshot-badge ${mcClass}" title="Mailshot: ${lead.mailshot_category}">${lead.mailshot_category === 'do_not_email' ? 'DNE' : lead.mailshot_category.substring(0,4)}</span>`;
+                }
+                if (lead.contact_source && lead.contact_source !== 'unknown') flagCell += ` <span class="source-badge" title="Contact source: ${lead.contact_source}">${lead.contact_source.substring(0,3)}</span>`;
 
                 return `<tr>
                     <td><div class="company-name">${lead.company_name}</div><div class="contact-info">${lead.sector || ''}</div></td>

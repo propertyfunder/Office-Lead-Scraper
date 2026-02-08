@@ -1,0 +1,69 @@
+🛠️ Updated Instruction Set for the Replit Agent
+🧹 1. Name Validation and Quality Control
+Issue: Some leads still contain garbage or placeholder names.
+Instruction:
+Refine _is_valid_contact_name() to better reject:
+Two-letter "names" (Al Fx, Jo Qe, etc.)
+Noun-only placeholder strings (e.g. Clinic Room, Wellbeing Space)
+Contact names that match website domains (info@blisshealth.co.uk → "Bliss Health" → flag as placeholder)
+New refinement note suggestions:
+rejected_garbage_name:{name}
+placeholder_name_detected:{name}
+📬 2. Principal Contact vs Website Contact Separation
+Issue: Confusion when contact_name is overwritten by principal_name.
+Instruction:
+Preserve both principal_name and contact_name in all cases.
+If fallback is applied (e.g., contact_name = principal_name), add:
+refinement_notes += contact_backfilled_from_principal
+Display both contacts clearly in the UI and CSV export.
+🔁 3. Field Persistence During Re-runs
+Issue: Fields like principal_email_guess and contact_names can be overwritten during enrichment passes.
+Instruction:
+Harden _is_empty() checks to avoid overwriting valid data.
+Add audit logic: log whenever a non-empty field is replaced, e.g. refinement_notes += overwritten:contact_name → old_name.
+💌 4. Better Email Guess Deduplication & Formatting
+Issue: Some guessed emails are poorly formed or repeated.
+Instruction:
+In generate_email_guesses pipeline:
+Deduplicate across all guesses
+Normalize (lowercase, trim whitespace, remove trailing punctuation)
+Validate against company domain and allowed characters
+Store rejected guesses in refinement_notes if filtered
+New note suggestion: filtered_invalid_email_guess:{guess}
+📚 5. Track and Display Contact Sources
+Issue: It's unclear whether a contact came from:
+Companies House
+Website team page
+OpenAI enrichment
+LinkedIn
+Instruction:
+Add a contact_source field with value:
+companies_house, website, linkedin, openai, backfilled, or unknown
+If multiple contacts, classify each in contact_names_with_source
+✂️ 6. Drop Leads with No Website/FB on Save
+Issue: These are currently processed and re-enriched despite exclusion.
+Instruction:
+At the end of enrichment, any lead with:
+enrichment_status = 'excluded'
+refinement_notes includes excluded:no_web_no_fb
+Should be written to a separate "excluded" file, and not remain in the enriched file.
+📊 7. Confidence Score Enhancement
+Suggestion:
+Add +0.5 to confidence if:
+Contact name matches COMMON_UK_FIRST_NAMES or has a professional title (e.g., “Dr”, “Chartered”)
+Website yields >1 team member with matching sector keyword in title
+Add -1 if suspicious name was replaced but no better name found
+📌 8. Better Tracking of Enrichment Attempts
+Instruction:
+Ensure enrichment_attempts is incremented at each run.
+Add last_enriched_date = today field to BusinessLead model and CSV output.
+🧠 Optional (Advanced Enhancements)
+🧪 9. Detect “Vanity” Brand Names
+If contact_name == company_name (after stripping Ltd, etc), flag as potential placeholder.
+Note: vanity_name_match:contact_is_company_name
+📤 10. Export Tags for Mailshot Filtering
+Auto-tag leads:
+no_email → do_not_email
+personal_email → priority
+generic_email → fallback
+Use lead.tag field or create mailshot_category field

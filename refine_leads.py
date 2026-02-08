@@ -559,18 +559,18 @@ def refine_leads(skip_re_enrich=False, re_enrich_limit=50):
 
     enriched_fields = [
         'company_name', 'website', 'website_verified', 'facebook_url',
-        'contact_name', 'contact_names',
+        'contact_name', 'contact_names', 'contact_source',
         'contact_email', 'personal_email_guesses', 'team_email_guesses',
         'principal_name', 'principal_email_guess',
-        'generic_email', 'email_type',
+        'generic_email', 'email_type', 'mailshot_category',
         'name_review_needed', 'missing_email',
-        'data_score',
+        'data_score', 'confidence_score',
         'sector', 'location', 'phone', 'linkedin',
         'ai_score', 'ai_reason', 'tag', 'google_rating',
         'category', 'place_id', 'search_town',
-        'enrichment_source', 'enrichment_status',
+        'enrichment_source', 'enrichment_status', 'enrichment_attempts',
         'email_guessed', 'contact_verified', 'multiple_contacts',
-        'contact_titles', 'archived'
+        'contact_titles', 'archived', 'refinement_notes', 'last_enriched_date'
     ]
 
     excluded_fields = enriched_fields + ['excluded_reason']
