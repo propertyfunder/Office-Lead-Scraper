@@ -1,0 +1,46 @@
+🔧 Refined Feedback and Instructions for src/enricher.py
+✅ 1. Always Persist OpenAI Enrichment Attempts
+Ensure openai_calls_per_record is persisted across runs (currently it's in-memory only).
+Store openai_attempts in the BusinessLead object or related model so retry thresholds survive restarts.
+✅ 2. Skip Records with No Web Presence Unless Facebook
+Before any enrichment attempt, skip or archive records where:
+lead.website_verified == "no" AND
+No facebook_url present.
+Add "no_web_presence" to refinement_notes and consider excluding from future runs.
+✅ 3. Revise Confidence Scoring Logic
+Update _calculate_confidence_score to give higher weight when:
+A verified contact_name is matched to an email guess.
+A principal_name and principal_email_guess are both present.
+Website was confirmed (website_verified == "true").
+Consider expanding from 1–5 to 0.0–5.0 for better granularity if UI can support it.
+✅ 4. Improve Contact Name Prioritization
+If both principal_name and team contact_name are available:
+Retain both, but prioritize contact_name for outreach.
+Store principal_name and principal_email_guess in their own fields without overwriting others.
+Add contact_source = "team" | "companies_house" | "openai" to help downstream filtering.
+✅ 5. Fix Email Guess Assignment Logic
+Ensure personal_email_guesses is updated even if a generic email is already present.
+Deduplicate guesses by normalizing (lowercase and strip).
+✅ 6. Add Role Field per Contact Name
+For contact_name, also extract and store contact_title (if from website or LinkedIn).
+This is already done for contact_names, but the main contact_name should also have a role if available.
+✅ 7. Refine "Fake Name" Detection
+Improve _is_valid_contact_name() by:
+Detecting uncommon initialisms like "Jfm Ixro".
+Lowering the threshold for consonant cluster filtering on short names.
+Increasing use of UK first name whitelists (already partially present).
+✅ 8. Improve Notes and Logging
+Always record fallback reasons in refinement_notes, even if enrichment completes.
+Use tags like:
+no_email_found
+placeholder_name
+contact_from_ch
+contact_from_team_page
+email_guessed_only
+✅ 9. Allow Better Retry Control
+Track enrichment_attempts per lead as currently implemented, but also:
+Add last_enriched_date (optional) to allow time-based reruns.
+Avoid retrying more than 3 times unless explicitly flagged.
+✅ 10. Minor Enhancements
+Ensure linkedin_attempted is tracked across sessions if relevant.
+Add a safeguard for OpenAI cost overruns if tokens are misestimated.

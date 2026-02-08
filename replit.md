@@ -46,11 +46,16 @@ The system is built around a modular Python architecture comprising scraping, en
     - **LinkedIn search:** Multiple query strategies with wellness-specific role terms (practitioner, therapist, lead).
     - **Multi-contact extraction:** Limit raised to 8 with role-based prioritization (founder/director > practice lead > senior > general staff). Global sorting before truncation ensures highest-priority contacts retained. Always attempted regardless of contact_name status.
     - **Name validation:** Handles Dr/BSc/MSc/PhD titles, qualification suffixes, hyphenated names, non-English names. Consonant cluster threshold relaxed from 5 to 6. Common UK first name whitelist (~180 names) prevents over-aggressive filtering.
-    - **Two-stage enrichment:** Stage 1 uses structured links/headings. Stage 2 deep DOM scan checks homepage AND all subpages for card-based/image alt/contextual patterns when Stage 1 finds nothing.
+    - **Two-stage enrichment:** Stage 1 uses structured links/headings. Stage 2 deep DOM scan now runs even when single contact found (to discover team members), checks homepage AND all subpages for card-based/image alt/contextual patterns.
     - **Responsiveness check:** Early return when website is unresponsive or returns HTTP 400+, with failure logging.
+    - **No-web-presence exclusion:** Records with no website URL AND no Facebook URL are automatically excluded with enrichment_status='excluded' and logged in refinement_notes.
     - **Field preservation:** principal_name, principal_email_guess, generic_email, contact_names protected from overwrites unless new data is better.
-    - **Enrichment tracking:** enrichment_attempts counter tracks retry count per lead. refinement_notes logs scraping challenges (e.g., social_media_url, website_no_data, openai_triggered:reason).
+    - **Principal email guessing:** Always attempts to guess principal_email when principal_name exists but principal_email_guess is empty, regardless of CH API key or CH lookup status.
+    - **Contact backfill:** When principal_name exists but contact_name is missing, automatically backfills contact_name from principal with refinement_notes logging.
+    - **Suspicious name detection:** _is_suspicious_name method checks for unusual bigrams, repeated characters, low vowel ratio. When suspicious name found with valid team alternatives, assigns best team member and logs replacement in refinement_notes.
+    - **Enrichment tracking:** enrichment_attempts counter tracks retry count per lead. refinement_notes logs scraping challenges (e.g., social_media_url, website_no_data, openai_triggered:reason, contact_backfilled_from_principal, principal_email_guessed, suspicious_name_replaced, invalid_name_rejected).
     - **Confidence scoring:** 1-5 score based on enrichment completeness (contact name, email quality, website verification, team contacts, principal data).
+    - **Email classification (refined):** email_type checks primary email field AND generic_email field. Personal classification requires name-part match in email local part or non-guessed status. Guessed emails without name match classified as 'guessed'.
     - **OpenAI trigger logging:** Logs specific reason why OpenAI was invoked (scraper_failed_no_contact, scraper_failed_no_email, etc.).
 
 **System Design Choices:**
