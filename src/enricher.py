@@ -214,23 +214,25 @@ class LeadEnricher:
     
     def _classify_email_type(self, lead: BusinessLead) -> str:
         has_generic = bool(lead.generic_email and '@' in lead.generic_email)
-        has_guesses = bool(lead.personal_email_guesses)
+        has_guesses = bool(lead.personal_email_guesses) or bool(lead.team_email_guesses)
         
         if lead.email and '@' in lead.email and self._is_generic_email(lead.email):
             has_generic = True
         
         has_personal = False
-        if lead.email and '@' in lead.email and not self._is_generic_email(lead.email):
-            email_local = lead.email.split('@')[0].lower()
-            contact_lower = (lead.contact_name or '').lower().split()
-            principal_lower = (lead.principal_name or '').lower().split()
-            name_parts = contact_lower + principal_lower
-            if any(part in email_local for part in name_parts if len(part) >= 3):
-                has_personal = True
-            elif lead.email_guessed != "true":
-                has_personal = True
-            else:
-                has_personal = False
+        emails_to_check = [lead.email, getattr(lead, 'contact_email', '') or '']
+        for em in emails_to_check:
+            if em and '@' in em and not self._is_generic_email(em):
+                email_local = em.split('@')[0].lower()
+                contact_lower = (lead.contact_name or '').lower().split()
+                principal_lower = (lead.principal_name or '').lower().split()
+                name_parts = contact_lower + principal_lower
+                if any(part in email_local for part in name_parts if len(part) >= 3):
+                    has_personal = True
+                    break
+                elif lead.email_guessed != "true":
+                    has_personal = True
+                    break
         
         if has_personal and has_generic:
             return "both"
@@ -238,7 +240,7 @@ class LeadEnricher:
             return "personal"
         elif has_generic:
             return "generic"
-        elif has_guesses or (lead.email and lead.email_guessed == "true"):
+        elif has_guesses or (lead.email and lead.email_guessed == "true") or lead.principal_email_guess:
             return "guessed"
         else:
             return "none"
@@ -429,31 +431,47 @@ class LeadEnricher:
                     domain = extract_domain(lead.website)
                     contact_names_list = []
                     contact_titles_list = []
-                    all_email_guesses = []
+                    primary_guesses = []
+                    team_guesses = []
                     
-                    for c in web_contacts[:8]:
+                    primary_name = (lead.contact_name or '').strip().lower()
+                    
+                    for i, c in enumerate(web_contacts[:8]):
                         contact_names_list.append(c['name'])
                         contact_titles_list.append(c.get('title', ''))
                         if domain:
                             guesses = generate_email_guesses(c['name'], domain, known_format)
-                            all_email_guesses.extend(guesses)
+                            is_primary = (c['name'].strip().lower() == primary_name) or (i == 0 and not primary_name)
+                            if is_primary:
+                                primary_guesses.extend(guesses)
+                            else:
+                                team_guesses.extend(guesses)
                     
                     if _is_empty(lead.contact_names) or len(contact_names_list) > len(lead.contact_names.split(';')):
                         lead.contact_names = "; ".join(contact_names_list)
                         lead.contact_titles = "; ".join(contact_titles_list)
                     lead.multiple_contacts = "TRUE" if len(contact_names_list) > 1 else "FALSE"
                     
-                    seen_guesses = []
-                    for g in all_email_guesses:
-                        if g not in seen_guesses:
-                            seen_guesses.append(g)
-                    if _is_empty(lead.personal_email_guesses) or len(seen_guesses) > len(lead.personal_email_guesses.split(';')):
-                        lead.personal_email_guesses = "; ".join(seen_guesses)
+                    seen_primary = []
+                    for g in primary_guesses:
+                        if g not in seen_primary:
+                            seen_primary.append(g)
+                    if _is_empty(lead.personal_email_guesses) or len(seen_primary) > len(lead.personal_email_guesses.split(';')):
+                        lead.personal_email_guesses = "; ".join(seen_primary)
+                    
+                    seen_team = []
+                    for g in team_guesses:
+                        if g not in seen_team and g not in seen_primary:
+                            seen_team.append(g)
+                    if seen_team and (_is_empty(lead.team_email_guesses) or len(seen_team) > len(lead.team_email_guesses.split(';'))):
+                        lead.team_email_guesses = "; ".join(seen_team)
                     
                     if contact_names_list:
                         print(f"    [Website] Found {len(contact_names_list)} contacts: {', '.join(contact_names_list)}")
-                    if seen_guesses:
-                        print(f"    [Website] Generated {len(seen_guesses)} email guesses")
+                    if seen_primary:
+                        print(f"    [Website] Generated {len(seen_primary)} personal email guesses")
+                    if seen_team:
+                        print(f"    [Website] Generated {len(seen_team)} team email guesses")
                 elif lead.contact_name and _is_empty(lead.contact_names):
                     lead.contact_names = lead.contact_name
                     lead.multiple_contacts = "FALSE"
@@ -782,7 +800,7 @@ class LeadEnricher:
                 if vowels == 0:
                     return False
         alpha_only = re.sub(r'[^a-z]', '', ' '.join(name_words).replace("'", "").replace("-", ""))
-        if re.search(r'[^aeiouy]{6,}', alpha_only):
+        if re.search(r'[^aeiouy]{5,}', alpha_only):
             return False
         return True
     
@@ -808,23 +826,37 @@ class LeadEnricher:
         name_words = [w for w in words if w.rstrip('.') not in {'dr', 'mr', 'mrs', 'ms', 'miss', 'prof', 'rev', 'sir', 'dame'}]
         if not name_words:
             return True
-        first = name_words[0].replace("'", "").replace("-", "")
-        if first not in self.COMMON_UK_FIRST_NAMES:
-            alpha = re.sub(r'[^a-z]', '', first)
+        for w in name_words:
+            alpha = re.sub(r'[^a-z]', '', w.replace("'", "").replace("-", ""))
+            if not alpha:
+                continue
             if len(alpha) >= 3:
                 vowels = sum(1 for c in alpha if c in 'aeiouy')
                 ratio = vowels / len(alpha)
-                if ratio < 0.2:
+                if ratio < 0.25:
                     return True
-            if len(alpha) >= 4:
-                unusual_bigrams = ['xq', 'zx', 'qz', 'jx', 'vx', 'xz', 'bx', 'fq', 'qx']
-                for bg in unusual_bigrams:
-                    if bg in alpha:
-                        return True
-        for w in name_words:
-            clean = re.sub(r'[^a-z]', '', w)
-            if len(clean) >= 2 and len(set(clean)) == 1:
+            if len(alpha) >= 3:
+                consonants_only = all(c not in 'aeiouy' for c in alpha)
+                if consonants_only:
+                    return True
+            if len(alpha) >= 2 and len(set(alpha)) == 1:
                 return True
+        first = name_words[0].replace("'", "").replace("-", "")
+        first_alpha = re.sub(r'[^a-z]', '', first)
+        if first_alpha and first_alpha not in self.COMMON_UK_FIRST_NAMES:
+            unusual_bigrams = {'xq', 'zx', 'qz', 'jx', 'vx', 'xz', 'bx', 'fq', 'qx',
+                              'ww', 'yy', 'zz', 'qq', 'xx', 'jj', 'kk', 'vv',
+                              'pf', 'bk', 'dk', 'gk', 'pk', 'tk', 'wk', 'zk',
+                              'bf', 'df', 'gf', 'kf', 'pz', 'tz', 'bz', 'gz'}
+            for bg in unusual_bigrams:
+                if bg in first_alpha:
+                    return True
+            unusual_trigrams = {'bcd', 'bcf', 'bdf', 'bfg', 'cdg', 'cfg', 'dfg', 'fgh',
+                               'ghj', 'hjk', 'jkl', 'klm', 'lmn', 'mnp', 'npq', 'pqr',
+                               'qrs', 'rst', 'stv', 'tvw', 'vwx', 'wxy', 'xyz'}
+            for tg in unusual_trigrams:
+                if tg in first_alpha:
+                    return True
         if len(name_words) >= 2 and name_words[0] == name_words[1]:
             return True
         return False

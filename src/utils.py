@@ -98,6 +98,8 @@ def generate_email_guesses(contact_name: str, domain: str, known_format: str = "
         f"{last_name}@{domain}",
         f"{first_name}_{last_name}@{domain}",
         f"{first_name}{last_name}@{domain}",
+        f"{first_name}{last_name[0]}@{domain}",
+        f"{first_name[0]}{last_name[0]}@{domain}",
     ]
     if known_format:
         known_clean = known_format.strip().lower()

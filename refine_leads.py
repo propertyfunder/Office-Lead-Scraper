@@ -531,6 +531,12 @@ def refine_leads(skip_re_enrich=False, re_enrich_limit=50):
         if not has_website and not has_facebook:
             lead['excluded_reason'] = 'no website and no Facebook page'
             lead['archived'] = 'TRUE'
+            existing_notes = lead.get('refinement_notes', '').strip()
+            excl_tag = 'excluded:no_web_no_fb'
+            if excl_tag not in existing_notes:
+                lead['refinement_notes'] = f"{existing_notes}; {excl_tag}".strip('; ') if existing_notes else excl_tag
+            lead['confidence_score'] = '1'
+            lead['mailshot_category'] = 'do_not_email'
             excluded.append(lead)
         else:
             lead['excluded_reason'] = ''

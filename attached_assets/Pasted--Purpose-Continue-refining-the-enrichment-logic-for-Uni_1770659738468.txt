@@ -1,0 +1,52 @@
+🧠 Purpose
+Continue refining the enrichment logic for Unit 8 lead data. Focus on data quality, realism of contact names, and email accuracy, while maximizing usable outreach leads for HubSpot mailshot campaigns.
+🔍 Improvement Objectives
+Principal Name & Email Refinement
+When principal_name is found from Companies House, always generate guesses for principal_email_guess (if not already present).
+Backfill contact_name from principal_name only if contact_name is empty.
+Ensure the enriched record has both contact and principal fields populated when possible.
+Suspicious Name Detection
+Further tune _is_valid_contact_name and _is_suspicious_name to:
+Eliminate names like "Jfm Ixro", "Kpn Awwp", "Spjiok Ydpp", etc.
+Catch vanity names (contact == company name or domain)
+Use team member fallback when a suspicious or placeholder name is detected
+Aggressive Multi-Contact Extraction
+Always populate team_email_guesses if multiple valid team members are found, even if contact_name is already present.
+Don’t rely solely on the existence of contact_name to skip team scraping.
+Email Guess Quality & Classification
+Expand formats for email guessing: first.last, f.last, firstl, initialsonly@, firstname@ etc.
+Store these guesses in both personal_email_guesses and team_email_guesses fields.
+Ensure all guessed formats appear in the output CSV for review.
+Strengthen _classify_email_type:
+personal: matches real names
+generic: standard prefixes (info@, admin@, etc.)
+guessed: does not match any known name
+both: valid personal and generic
+none: nothing usable
+Confidence & Mailshot Scoring
+Assign confidence scores 1–5 based on contact validity, email match, team members, and site verification.
+Leads with:
+No name, no email, and no website/Facebook should be scored 1 and marked as excluded:no_web_no_fb.
+Full contact with name/email/site/team should be scored 5.
+No Website / No Facebook Handling
+Immediately exclude leads with no website and no facebook_url.
+Tag with excluded:no_web_no_fb in refinement_notes.
+Preserve Valid Yet Incomplete Leads
+Rather than remove incomplete leads, include them in the same CSV with clear indicators:
+confidence_score: 1–5
+refinement_notes: missing_name, missing_email, suspicious_name_replaced, etc.
+mailshot_category: priority, fallback, do_not_email
+This enables fast review and retargeting.
+Clear Logging & OpenAI Triggers
+Track ai_reason when OpenAI is triggered.
+Ensure refinement_notes show if OpenAI was used or if fallback logic applied (e.g., openai_triggered:scraper_failed_no_email).
+📦 Final Output Expectations
+Unified enriched CSV with:
+contact_name, contact_names, contact_titles
+email, email_type, email_guessed
+generic_email, personal_email_guesses, team_email_guesses
+principal_name, principal_email_guess
+refinement_notes, confidence_score, mailshot_category
+website_verified, linkedin, employee_count
+Leads with low confidence clearly flagged in refinement_notes, but not excluded from the file.
+Records with no enrichment potential (no name, no email, no site/fb) can be excluded entirely or archived separately if needed.
