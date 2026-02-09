@@ -61,7 +61,9 @@ BUSINESS_WORDS = {
     'group', 'associates', 'solutions', 'consulting', 'consultancy',
     'foundation', 'trust', 'partnership', 'potential', 'limitless',
     'wellness', 'fitness', 'studio', 'studios', 'academy', 'institute',
-    'school', 'college', 'nursery'
+    'school', 'college', 'nursery', 'cottage', 'manor', 'hall',
+    'lodge', 'barn', 'farm', 'court', 'grove', 'place', 'lane',
+    'walk', 'mews', 'close'
 }
 
 PLACEHOLDER_NAMES = {
@@ -226,6 +228,90 @@ def strip_job_titles(name: str) -> str:
     result = re.sub(r'\s*[-–|/].*$', '', result).strip()
     result = re.sub(r'\s*\(.*?\)\s*$', '', result).strip()
     return result if len(result.split()) >= 2 else name.strip()
+
+
+PRACTITIONER_FIRST_NAMES = {
+    'adam', 'alan', 'alex', 'alice', 'amanda', 'amy', 'andrea', 'andrew', 'angela', 'ann',
+    'anna', 'anne', 'anthony', 'abi', 'abigail', 'andy', 'annie', 'becky', 'ben', 'beth',
+    'beverley', 'bill', 'bob', 'bonnie', 'brian', 'bridget', 'bruce', 'carl', 'carol',
+    'caroline', 'carolyn', 'catherine', 'charlotte', 'chloe', 'chris', 'christine', 'claire',
+    'clare', 'colin', 'craig', 'dan', 'daniel', 'david', 'dawn', 'deborah', 'debbie', 'diana',
+    'diane', 'donna', 'dorothy', 'ed', 'edward', 'elaine', 'elizabeth', 'ella', 'ellie',
+    'emma', 'emily', 'eric', 'fiona', 'frances', 'frank', 'gareth', 'gary', 'gemma', 'george',
+    'gill', 'glen', 'glenn', 'gordon', 'grace', 'graham', 'grant', 'greg', 'gwen', 'hannah',
+    'harry', 'hayley', 'helen', 'hilary', 'holly', 'ian', 'jack', 'jackie', 'james', 'jane',
+    'janet', 'jason', 'jean', 'jennifer', 'jenny', 'jessica', 'jill', 'jo', 'joan', 'joanne',
+    'joe', 'john', 'jonathan', 'joseph', 'judy', 'julia', 'julie', 'june', 'karen', 'kate',
+    'katherine', 'kathleen', 'kathryn', 'katy', 'kay', 'keith', 'kelly', 'ken', 'kevin', 'kim',
+    'kirstin', 'kirsty', 'laura', 'lauren', 'lee', 'leigh', 'lesley', 'linda', 'lisa', 'liz',
+    'louise', 'lucy', 'lynn', 'malcolm', 'margaret', 'maria', 'marie', 'mark', 'martin', 'mary',
+    'matthew', 'matt', 'max', 'meg', 'megan', 'melanie', 'michael', 'michelle', 'mike', 'moira',
+    'nadia', 'natalie', 'natasha', 'neil', 'nicholas', 'nick', 'nicola', 'nigel', 'oliver',
+    'olivia', 'pam', 'pamela', 'pat', 'patricia', 'patrick', 'paul', 'paula', 'penny', 'peter',
+    'philip', 'philippa', 'praveena', 'rachel', 'rebecca', 'richard', 'robert', 'robin', 'roger',
+    'rosemary', 'ross', 'ruth', 'sally', 'sam', 'samantha', 'sandra', 'sarah', 'scott', 'sean',
+    'sharon', 'simon', 'sophie', 'stephen', 'steve', 'stuart', 'sue', 'susan', 'teresa', 'theresa',
+    'thomas', 'tim', 'timothy', 'tina', 'tom', 'tony', 'tracy', 'trish', 'vanessa', 'vicky',
+    'victoria', 'wayne', 'wendy', 'william', 'zara', 'zilla', 'zoe',
+    'amir', 'anita', 'asha', 'deepak', 'fatima', 'hassan', 'indira', 'jasmine', 'jana', 'kamal',
+    'kumar', 'lakshmi', 'meera', 'mohammad', 'nadia', 'priya', 'raj', 'ravi', 'sanjay',
+    'sissy', 'tara', 'vikram', 'yusuf',
+}
+
+COMPANY_SUFFIXES = {
+    'counselling', 'counsellor', 'counseling', 'therapy', 'therapies', 'therapist',
+    'clinic', 'clinical', 'psychologist', 'psychology', 'psychotherapy',
+    'physiotherapy', 'physio', 'physiotherapist', 'osteopath', 'osteopathy', 'osteopaths',
+    'chiropractic', 'chiropractor', 'yoga', 'pilates', 'massage',
+    'nutrition', 'nutritionist', 'hypnotherapy', 'hypnotherapist',
+    'acupuncture', 'acupuncturist', 'reflexology', 'holistic', 'holistics',
+    'naturally', 'natural', 'health', 'wellness', 'wellbeing', 'coaching', 'coach',
+    'classes', 'studio', 'practice', 'practitioner', 'services', 'fitness',
+    'associates', 'aesthetics', 'beauty', 'skincare', 'podiatry', 'podiatrist',
+    'dentistry', 'dental', 'orthodontics',
+}
+
+
+def extract_name_from_company(company_name: str) -> str:
+    if not company_name:
+        return ''
+    parts = re.split(r'\s+[-–|]\s+', company_name)
+    segment = parts[0].strip()
+    segment = re.sub(r'\s*\(.*?\)\s*$', '', segment).strip()
+    segment = re.sub(r'\s*&\s+\w+$', '', segment).strip()
+
+    words = segment.split()
+    name_words = []
+    for w in words:
+        if w.lower().rstrip('.') in TITLE_PREFIXES:
+            continue
+        name_words.append(w)
+
+    while name_words and name_words[-1].lower() in (COMPANY_SUFFIXES | {'and', '&'}):
+        name_words.pop()
+
+    if len(name_words) < 2 or len(name_words) > 3:
+        return ''
+
+    for w in name_words:
+        if w.lower() in BUSINESS_WORDS:
+            return ''
+
+    for w in name_words:
+        clean = w.replace("'", "").replace("-", "")
+        if not clean or not clean[0].isupper():
+            return ''
+        if not all(c.isalpha() for c in clean.replace("'", "").replace("-", "")):
+            return ''
+
+    first = name_words[0].replace("'", "").replace("-", "").lower()
+    if first not in PRACTITIONER_FIRST_NAMES:
+        return ''
+
+    name = ' '.join(name_words)
+    if is_valid_name(name) != 'valid':
+        return ''
+    return name
 
 
 def is_facebook_url(url: str) -> bool:
@@ -497,6 +583,18 @@ def process_lead(lead: dict, ch_data: dict) -> dict:
                         lead['contact_name'] = cn_clean
                         contact_validity = 'valid'
                         break
+
+    if contact_validity != 'valid':
+        company = lead.get('company_name', '').strip()
+        extracted = extract_name_from_company(company)
+        if extracted:
+            lead['contact_name'] = extracted
+            contact_validity = 'valid'
+            lead['contact_source'] = lead.get('contact_source', '') or 'company_name'
+            notes = lead.get('refinement_notes', '') or ''
+            notes_list = [n.strip() for n in notes.split(';') if n.strip()]
+            notes_list.append(f"contact_from_company_name:{extracted}")
+            lead['refinement_notes'] = '; '.join(notes_list)
 
     lead['name_review_needed'] = ''
     if contact_validity == 'review':
