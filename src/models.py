@@ -46,6 +46,8 @@ class BusinessLead:
     contact_source: str = ""
     last_enriched_date: str = ""
     mailshot_category: str = ""
+    missing_name_final: str = ""
+    data_quality: str = ""
     
     def to_dict(self) -> dict:
         return asdict(self)

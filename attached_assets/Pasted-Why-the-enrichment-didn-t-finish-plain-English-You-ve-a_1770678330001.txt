@@ -1,0 +1,79 @@
+Why the enrichment didn’t finish (plain English)
+You’ve already diagnosed the root causes correctly:
+_is_fully_enriched is misaligned with your CSV reality
+It expects email
+Your data uses contact_email, generic_email, and guesses
+Result: 1272/1272 leads flagged as needing enrichment
+The enrichment pipeline is too heavy for a long-running batch
+Website crawling
+Subpage discovery
+Companies House
+LinkedIn
+OpenAI
+→ ~1 lead/minute = multi-hour runs that are fragile
+Progress saving was too coarse
+Early runs only saved every 50 leads
+Partial progress was effectively lost when interrupted
+The target set was correct (318 missing names), but execution was not isolated enough
+Still triggering CH + OpenAI + deep crawl
+Heading-team logic was rarely applicable to this subset
+This is not a logic failure — it’s a pipeline control failure.
+The correct instruction to give the Replit agent
+You want to switch from “enrich everything” to “surgically fix what’s broken”.
+You can paste the following verbatim.
+INSTRUCTIONS: FIX EXECUTION STRATEGY — DO NOT EXPAND SCOPE
+We are not changing enrichment logic.
+We are changing how and when it runs so it can finish reliably.
+1. Redefine “needs enrichment” for this phase
+Do not use _is_fully_enriched for batch control.
+Instead, explicitly define target cohorts:
+Cohort A: leads where contact_name is empty
+Cohort B: leads where contact_name exists AND confidence_score <= 3
+Cohort C: leads where email_verified = false
+Each cohort must be processed separately, never all 1272 at once.
+2. Hard-disable heavy enrichment for targeted runs
+For the remaining runs explicitly disable:
+Companies House
+LinkedIn
+Full site discovery
+Multi-stage crawling
+Each run should use one tool only:
+Run	Allowed tools
+Contact recovery	Website scrape only (known pages only)
+False-positive cleanup	OpenAI classification only
+Email verification	Website scrape only
+Final confirmation	OpenAI confirmation only
+No run should mix tools.
+3. Enforce strict per-lead time limits
+Add guardrails so no single lead can stall the batch:
+Max pages per lead: 3
+Max HTTP requests per lead: 5
+Max OpenAI calls per lead: 1
+Hard timeout per lead: 30 seconds
+If exceeded:
+Log refinement_notes += timeout_exceeded
+Move on immediately
+4. Make progress saving bulletproof
+Mandatory changes:
+Save CSV after every lead
+Store:
+last_enriched_date
+enrichment_attempts
+On restart:
+Skip leads enriched today unless explicitly forced
+No more “background runs without persistence”.
+5. Accept diminishing returns explicitly
+This is important philosophically.
+Add a stop condition:
+If a lead has:
+no website or only a Facebook page
+no company number
+no names found after 2 attempts
+→ mark permanently as missing_name_final
+Do not retry endlessly.
+6. Reframe success criteria
+We are not trying to reach 90% by force.
+We are trying to reach:
+~85–90% real, defensible contacts
+~10–15% explicitly marked as unreachable
+That is a successful commercial dataset.

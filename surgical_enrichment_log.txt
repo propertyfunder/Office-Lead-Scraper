@@ -1,0 +1,15 @@
+
+============================================================
+Run: 2026-02-09 23:11:29
+Cohort: A | Mode: contact_recovery
+Duration: 0.6min | Processed: 3
+  processed: 3
+  gained_contact: 0
+  lost_contact: 0
+  gained_email: 0
+  errors: 0
+  timeouts: 0
+  request_limits: 0
+  marked_final: 3
+  fp_removed: 0
+  confirmed_real: 0
