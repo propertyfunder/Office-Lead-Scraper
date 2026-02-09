@@ -33,12 +33,31 @@ The system employs a modular Python architecture for scraping, enrichment, AI sc
     - **Data integrity logging:** All fallback paths logged in refinement_notes without overwriting valid existing data. Principal/contact fields protected from downgrade overwrites. _notes initialized in result dict for consistent tracking.
     - **Heading-driven team detection (Feb 2026):** New `_detect_heading_team_pattern()` method scans ALL headings (h1-h6, uncapped) on a page. When 3+ headings pass `_looks_like_name` and `_is_valid_contact_name`, the page is treated as a team page. Each heading is paired with next-sibling role text (<150 chars) via role keyword matching. Runs as first pass in `_find_multiple_contacts()` before CSS class matching, so flat HTML team pages (like Medicspot) are detected without requiring team/staff CSS classes. Dr/Prof names get automatic "Doctor" title if no explicit role text found. max_contacts raised from 8 to 20. Contact promotion selects highest-role person when no single owner exists. Diagnostic notes: team_detected_via_headings, contact_from_heading_role_pair, multi_contact_team_page:N. Role priority updated to include doctor/gp/surgeon (tier 3), nurse/midwife/pharmacist (tier 7), with Dr/Prof name prefix as tier 3 fallback.
 
+**Surgical Enrichment Runner (Feb 2026):**
+    - **Cohort-based processing:** Replaced monolithic "enrich everything" with targeted cohorts:
+        - Cohort A: leads missing contact_name (with website, excluding social-only)
+        - Cohort B: leads with contact_name but low confidence_score (<=3)
+        - Cohort C: leads with unverified/guessed emails
+    - **Single-tool run modes:** Each run uses exactly one tool to prevent pipeline fragility:
+        - `contact_recovery`: Website scrape only (max 3 pages per lead)
+        - `false_positive_cleanup`: OpenAI classification only (validates names as real vs false positive)
+        - `email_verification`: Website scrape only (targeted email search)
+        - `final_confirmation`: OpenAI confirmation only (validates contact accuracy)
+    - **SurgicalEnricher subclass:** Extends LeadEnricher with tool isolation via method overrides and API key nulling. Disables Companies House, LinkedIn, and OpenAI selectively per mode.
+    - **Per-lead guardrails:** Max 3 pages, max 5 HTTP requests, max 1 OpenAI call, hard 30-second timeout per lead. Timeout/limit breaches logged in refinement_notes.
+    - **Bulletproof progress saving:** CSV saved after every single lead. Tracks last_enriched_date and enrichment_attempts. On restart, skips leads enriched today unless --force flag used.
+    - **Stop conditions:** After 2 failed attempts with no website/social-only + no company number + no names found, leads are permanently marked `missing_name_final=true`. Not retried in future runs.
+    - **CLI interface:** `run_surgical_enrichment.py --cohort A|B|C --mode <mode> [--limit N] [--force] [--dry-run] [--stats]`
+    - **Performance:** ~12 leads/min (vs ~1/min for monolithic enricher) due to tool isolation and page caps.
+    - **Success criteria:** Target ~85-90% real defensible contacts, ~10-15% explicitly marked unreachable.
+
 **System Design Choices:**
 - **Modularity:** Clear separation of concerns for maintainability and scalability.
 - **API-First Scraping:** Prioritizes APIs over traditional web scraping to ensure reliability.
 - **Incremental Processing:** Supports incremental CSV saving to prevent data loss during long enrichment processes.
 - **Processing Order:** Defines a specific order for refinement and Companies House enrichment to ensure data integrity.
 - **Command-Line Flexibility:** Provides extensive CLI arguments for customizable operations.
+- **Surgical over Monolithic:** Enrichment switched from "enrich everything" to cohort-based single-tool runs for reliability and speed.
 
 ## External Dependencies
 - **Google Places API:** Main source for business information.

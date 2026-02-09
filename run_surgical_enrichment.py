@@ -282,6 +282,8 @@ def enrich_single_lead(enricher, lead, mode):
             return run_false_positive_cleanup(enricher, lead, notes)
         elif mode == 'final_confirmation':
             return run_final_confirmation(enricher, lead, notes)
+        elif mode in ('contact_recovery', 'email_verification'):
+            return run_website_only(enricher, lead, notes, mode)
         else:
             enricher.enrich(lead, skip_if_complete=False)
             return lead, notes
@@ -292,6 +294,108 @@ def enrich_single_lead(enricher, lead, mode):
         notes.append('timeout_exceeded')
     except Exception as e:
         notes.append(f'surgical_error:{str(e)[:60]}')
+
+    return lead, notes
+
+
+def run_website_only(enricher, lead, notes, mode):
+    if not lead.website:
+        notes.append('skipped:no_website')
+        return lead, notes
+
+    is_social = any(d in lead.website.lower() for d in
+        ['facebook.com', 'fb.com', 'instagram.com', 'twitter.com'])
+    if is_social:
+        notes.append('skipped:social_media_only')
+        return lead, notes
+
+    print(f"  Enriching: {lead.company_name} (attempt {lead.enrichment_attempts})")
+    web_result = enricher._enrich_from_website(lead)
+
+    found_email = web_result.get('email', '')
+    found_contact = web_result.get('contact', '')
+    web_contacts = web_result.get('contacts', [])
+    web_generic = web_result.get('generic_email', '')
+    web_notes = web_result.get('_notes', [])
+
+    if web_notes:
+        notes.extend(web_notes)
+
+    if web_generic and _is_empty(lead.generic_email):
+        lead.generic_email = clean_email(web_generic)
+        if lead.generic_email:
+            print(f"    [Website] Generic email: {lead.generic_email}")
+
+    if found_email and _is_empty(lead.email):
+        lead.email = clean_email(found_email)
+        lead.email_guessed = "false"
+        print(f"    [Website] Found email: {lead.email}")
+
+    if found_contact and _is_empty(lead.contact_name):
+        if enricher._is_valid_contact_name(found_contact):
+            if enricher._is_domain_name(found_contact, lead.website):
+                notes.append(f'placeholder_name_detected:{found_contact}')
+                print(f"    [Website] Domain-matching name rejected: {found_contact}")
+            elif enricher._is_vanity_name(found_contact, lead.company_name):
+                notes.append(f'vanity_name_match:{found_contact}')
+                print(f"    [Website] Vanity name rejected: {found_contact}")
+            elif enricher._is_suspicious_name(found_contact):
+                notes.append(f'suspicious_name:{found_contact}')
+                print(f"    [Website] Suspicious name flagged: {found_contact}")
+                lead.contact_name = normalize_name(found_contact)
+                lead.contact_verified = "false"
+                lead.contact_source = "website"
+            else:
+                lead.contact_name = normalize_name(found_contact)
+                lead.contact_verified = "true"
+                lead.contact_source = "website"
+                print(f"    [Website] Found contact: {lead.contact_name}")
+        else:
+            notes.append(f'rejected_invalid_name:{found_contact[:40]}')
+
+    if lead.contact_name and _is_empty(lead.email) and lead.website:
+        domain = extract_domain(lead.website)
+        if domain:
+            guessed = guess_email(lead.company_name, lead.contact_name, domain)
+            if guessed:
+                lead.email = clean_email(guessed)
+                lead.email_guessed = "true"
+                print(f"    [Guessed] Email: {lead.email}")
+
+    if web_contacts and lead.website:
+        domain = extract_domain(lead.website)
+        contact_names_list = [c['name'] for c in web_contacts[:8]]
+        if _is_empty(lead.contact_names) or len(contact_names_list) > len(lead.contact_names.split(';')):
+            lead.contact_names = "; ".join(contact_names_list)
+        if domain:
+            primary_name = (lead.contact_name or '').strip().lower()
+            primary_guesses = []
+            team_guesses = []
+            for i, c in enumerate(web_contacts[:8]):
+                guesses = generate_email_guesses(c['name'], domain)
+                is_primary = (c['name'].strip().lower() == primary_name) or (i == 0 and not primary_name)
+                if is_primary:
+                    primary_guesses.extend(guesses)
+                else:
+                    team_guesses.extend(guesses)
+            if primary_guesses:
+                lead.personal_email_guesses = "; ".join(dict.fromkeys(primary_guesses))
+            if team_guesses:
+                lead.team_email_guesses = "; ".join(dict.fromkeys(team_guesses))
+
+    lead.enrichment_status = enricher._determine_status(lead)
+    lead.email_type = enricher._classify_email_type(lead)
+    lead.confidence_score = enricher._calculate_confidence_score(lead)
+    lead.mailshot_category = enricher._classify_mailshot(lead)
+
+    if web_contacts or found_contact or found_email:
+        lead.enrichment_source = "website"
+    elif not lead.enrichment_source:
+        lead.enrichment_source = "not_found"
+
+    if not found_contact and not found_email and not web_contacts:
+        print(f"    [Website] No contact/email found")
+        notes.append('website_no_data')
 
     return lead, notes
 

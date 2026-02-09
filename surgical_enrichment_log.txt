@@ -13,3 +13,18 @@ Duration: 0.6min | Processed: 3
   marked_final: 3
   fp_removed: 0
   confirmed_real: 0
+
+============================================================
+Run: 2026-02-09 23:14:13
+Cohort: A | Mode: contact_recovery
+Duration: 0.4min | Processed: 5
+  processed: 5
+  gained_contact: 0
+  lost_contact: 0
+  gained_email: 0
+  errors: 0
+  timeouts: 0
+  request_limits: 0
+  marked_final: 0
+  fp_removed: 0
+  confirmed_real: 0

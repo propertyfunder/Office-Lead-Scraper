@@ -151,38 +151,14 @@ def load_leads_from_csv(filepath: str) -> List[BusinessLead]:
     if not os.path.exists(filepath):
         return leads
     
+    from dataclasses import fields as dc_fields
+    all_fields = [f.name for f in dc_fields(BusinessLead)]
+    
     with open(filepath, 'r', encoding='utf-8') as f:
         reader = csv.DictReader(f)
         for row in reader:
-            lead = BusinessLead(
-                company_name=row.get('company_name', ''),
-                website=row.get('website', ''),
-                sector=row.get('sector', ''),
-                contact_name=row.get('contact_name', ''),
-                email=row.get('email', ''),
-                linkedin=row.get('linkedin', ''),
-                location=row.get('location', ''),
-                employee_count=row.get('employee_count', ''),
-                source=row.get('source', ''),
-                ai_score=row.get('ai_score', ''),
-                ai_reason=row.get('ai_reason', ''),
-                tag=row.get('tag', ''),
-                phone=row.get('phone', ''),
-                google_rating=row.get('google_rating', ''),
-                place_id=row.get('place_id', ''),
-                search_town=row.get('search_town', ''),
-                category=row.get('category', ''),
-                enrichment_source=row.get('enrichment_source', ''),
-                enrichment_status=row.get('enrichment_status', ''),
-                ai_enriched=row.get('ai_enriched', ''),
-                email_guessed=row.get('email_guessed', ''),
-                contact_verified=row.get('contact_verified', ''),
-                generic_email=row.get('generic_email', ''),
-                contact_names=row.get('contact_names', ''),
-                personal_email_guesses=row.get('personal_email_guesses', ''),
-                contact_titles=row.get('contact_titles', ''),
-                multiple_contacts=row.get('multiple_contacts', '')
-            )
+            kwargs = {field: row.get(field, '') for field in all_fields}
+            lead = BusinessLead(**kwargs)
             leads.append(lead)
     
     return leads

@@ -154,18 +154,13 @@ def normalize_name(name: str) -> str:
     words = name.split()
     return ' '.join(word.capitalize() for word in words)
 
+def get_all_fieldnames():
+    from dataclasses import fields as dc_fields
+    return [f.name for f in dc_fields(BusinessLead)]
+
 def save_leads_to_csv(leads: List[BusinessLead], filepath: str, mode: str = 'a'):
     file_exists = os.path.exists(filepath) and os.path.getsize(filepath) > 0
-    fieldnames = [
-        'company_name', 'website', 'sector', 'contact_name', 'contact_source',
-        'email', 'phone', 'linkedin', 'location', 'employee_count', 
-        'source', 'ai_score', 'ai_reason', 'tag', 'google_rating',
-        'place_id', 'search_town', 'category', 'enrichment_source', 'enrichment_status',
-        'enrichment_attempts', 'last_enriched_date',
-        'ai_enriched', 'email_guessed', 'contact_verified',
-        'generic_email', 'contact_names', 'personal_email_guesses', 'contact_titles', 'multiple_contacts',
-        'confidence_score', 'email_type', 'mailshot_category', 'refinement_notes'
-    ]
+    fieldnames = get_all_fieldnames()
     with open(filepath, mode, newline='', encoding='utf-8') as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction='ignore')
         if not file_exists or mode == 'w':
