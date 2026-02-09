@@ -372,6 +372,7 @@ class LeadEnricher:
                 web_generic_email = web_result['generic_email']
                 known_format = web_result['known_email_format']
                 web_notes = web_result.get('_notes', [])
+                web_source = web_result.get('source', '')
                 if web_notes:
                     notes.extend(web_notes)
                 
@@ -416,10 +417,11 @@ class LeadEnricher:
                                 print(f"    [Website] Found contact (flagged suspicious): {lead.contact_name}")
                         else:
                             lead.contact_name = normalize_name(found_contact)
-                            contact_source = "website"
+                            contact_source = web_source if web_source in ('website_team_heading',) else "website"
                             print(f"    [Website] Found contact: {lead.contact_name}")
                         if lead.contact_name:
-                            lead.contact_verified = "false" if is_single_name else "true"
+                            is_heading_team_contact = 'contact_from_heading_role_pair' in notes
+                            lead.contact_verified = "false" if (is_single_name or is_heading_team_contact) else "true"
                             if "website" not in sources_tried:
                                 sources_tried.append("website")
                             
@@ -1122,14 +1124,26 @@ class LeadEnricher:
         if contact and contact.lower() not in {c['name'].lower() for c in all_contacts}:
             all_contacts.insert(0, {'name': normalize_name(contact), 'title': ''})
         
+        is_heading_team = any(c.get('source') == 'heading_team' for c in all_contacts)
+        if is_heading_team:
+            result['_notes'].append('team_detected_via_headings')
+            if len(all_contacts) >= 3:
+                result['_notes'].append(f'multi_contact_team_page:{len(all_contacts)}')
+
         if len(all_contacts) > 1:
-            primary = all_contacts[0] if contact else None
-            rest = all_contacts[1:] if contact else all_contacts
-            rest = self._sort_contacts_by_role(rest)
-            if primary:
+            if contact:
+                primary = all_contacts[0]
+                rest = all_contacts[1:]
+                rest = self._sort_contacts_by_role(rest)
                 all_contacts = [primary] + rest
             else:
-                all_contacts = rest
+                all_contacts = self._sort_contacts_by_role(all_contacts)
+                contact = all_contacts[0]['name']
+                source = all_contacts[0].get('source', 'website')
+                if source == 'heading_team':
+                    source = 'website_team_heading'
+                    result['_notes'].append('contact_from_heading_role_pair')
+                print(f"      [Heading Team] Promoted best contact: {contact}")
         
         known_format = ""
         domain = extract_domain(lead.website)
@@ -1145,7 +1159,7 @@ class LeadEnricher:
         result['email'] = personal_email or personal_domain_email or generic_email
         result['generic_email'] = generic_email
         result['contact'] = contact
-        result['contacts'] = all_contacts[:8]
+        result['contacts'] = all_contacts[:20]
         result['source'] = source
         result['text'] = all_text[:5000]
         result['known_email_format'] = known_format
@@ -1587,7 +1601,67 @@ class LeadEnricher:
         
         return ""
     
-    def _find_multiple_contacts(self, soup: BeautifulSoup, max_contacts: int = 8) -> List[dict]:
+    def _detect_heading_team_pattern(self, soup: BeautifulSoup, max_contacts: int = 20) -> List[dict]:
+        role_patterns = [
+            r'(?:founder|co-founder|owner|director|managing director|ceo|principal|proprietor|partner)',
+            r'(?:clinical director|practice owner|lead therapist|head therapist|senior therapist)',
+            r'(?:physiotherapist|osteopath|chiropractor|therapist|practitioner|clinician)',
+            r'(?:consultant|specialist|coach|instructor|doctor|dentist|gp|surgeon|physician)',
+            r'(?:pilates instructor|yoga teacher|massage therapist|psychotherapist|counsellor)',
+            r'(?:nutritionist|dietitian|acupuncturist|reflexologist|homeopath)',
+            r'(?:nurse|midwife|paramedic|pharmacist|optometrist|podiatrist|audiologist)',
+        ]
+        combined_role_pattern = '|'.join(role_patterns)
+
+        contacts = []
+        seen_names = set()
+        all_headings = soup.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6'])
+
+        for heading in all_headings:
+            if len(contacts) >= max_contacts:
+                break
+            name_text = clean_text(heading.get_text())
+            if not name_text:
+                continue
+            is_dr = name_text.lower().startswith(('dr ', 'dr.', 'prof ', 'prof.', 'professor '))
+            if not self._looks_like_name(name_text):
+                continue
+            if not self._is_valid_contact_name(name_text):
+                continue
+            name_lower = name_text.lower()
+            if name_lower in seen_names:
+                continue
+
+            title = ""
+            next_sib = heading.find_next_sibling()
+            if next_sib:
+                sib_text = clean_text(next_sib.get_text())
+                if sib_text and len(sib_text) < 150 and sib_text.lower() != name_lower:
+                    if re.search(combined_role_pattern, sib_text, re.I):
+                        title = sib_text[:80]
+            if not title:
+                next_elem = heading.find_next(['p', 'span', 'div', 'em', 'small', 'li'])
+                if next_elem:
+                    next_text = clean_text(next_elem.get_text())
+                    if next_text and len(next_text) < 150 and next_text.lower() != name_lower:
+                        if re.search(combined_role_pattern, next_text, re.I):
+                            title = next_text[:80]
+            if not title and is_dr:
+                title = "Doctor"
+
+            seen_names.add(name_lower)
+            contacts.append({
+                'name': normalize_name(name_text),
+                'title': title,
+                'is_dr': is_dr,
+                'source': 'heading_team'
+            })
+
+        if len(contacts) >= 3:
+            return contacts
+        return []
+
+    def _find_multiple_contacts(self, soup: BeautifulSoup, max_contacts: int = 20) -> List[dict]:
         contacts = []
         seen_names = set()
         
@@ -1600,6 +1674,19 @@ class LeadEnricher:
             r'(?:nutritionist|dietitian|acupuncturist|reflexologist|homeopath)',
         ]
         combined_role_pattern = '|'.join(role_patterns)
+
+        heading_contacts = self._detect_heading_team_pattern(soup, max_contacts)
+        if heading_contacts:
+            for c in heading_contacts:
+                name_lower = c['name'].lower()
+                if name_lower not in seen_names:
+                    seen_names.add(name_lower)
+                    contacts.append({'name': c['name'], 'title': c.get('title', ''), 'source': 'heading_team'})
+                    if len(contacts) >= max_contacts:
+                        break
+            if len(contacts) > 1:
+                contacts = self._sort_contacts_by_role(contacts)
+            return contacts[:max_contacts]
         
         team_sections = soup.find_all(['section', 'div', 'article', 'main'],
             class_=re.compile(r'team|staff|people|about|bio|profile|clinician|practitioner|therapist|expert|member|leadership|instructor|coach|specialist|doctor', re.I))
@@ -1703,25 +1790,31 @@ class LeadEnricher:
         
         return contacts[:max_contacts]
     
-    def _role_priority(self, title: str) -> int:
-        if not title:
+    def _role_priority(self, title: str, name: str = "") -> int:
+        if not title and not name:
             return 99
-        title_lower = title.lower()
+        title_lower = (title or "").lower()
+        name_lower = (name or "").lower()
+        is_dr = name_lower.startswith(('dr ', 'dr.', 'prof ', 'prof.', 'professor '))
         priority_tiers = [
             (1, ['founder', 'co-founder', 'owner', 'managing director', 'ceo', 'principal', 'proprietor']),
             (2, ['director', 'partner', 'clinical director', 'practice owner', 'practice lead', 'practice manager']),
-            (3, ['lead therapist', 'head therapist', 'senior therapist', 'lead physiotherapist', 'head of']),
+            (3, ['lead therapist', 'head therapist', 'senior therapist', 'lead physiotherapist', 'head of',
+                  'doctor', 'gp', 'surgeon', 'physician']),
             (4, ['consultant', 'specialist', 'senior']),
             (5, ['physiotherapist', 'osteopath', 'chiropractor', 'therapist', 'practitioner', 'clinician']),
             (6, ['coach', 'instructor', 'teacher']),
+            (7, ['nurse', 'midwife', 'paramedic', 'pharmacist', 'optometrist', 'podiatrist', 'audiologist']),
         ]
         for priority, keywords in priority_tiers:
             if any(kw in title_lower for kw in keywords):
                 return priority
+        if is_dr:
+            return 3
         return 99
     
     def _sort_contacts_by_role(self, contacts: List[dict]) -> List[dict]:
-        return sorted(contacts, key=lambda c: self._role_priority(c.get('title', '')))
+        return sorted(contacts, key=lambda c: self._role_priority(c.get('title', ''), c.get('name', '')))
     
     def _deep_dom_scan_for_names(self, soup: BeautifulSoup) -> List[dict]:
         contacts = []

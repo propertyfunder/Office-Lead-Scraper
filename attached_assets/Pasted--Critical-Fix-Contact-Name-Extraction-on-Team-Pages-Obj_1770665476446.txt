@@ -1,0 +1,76 @@
+(Critical Fix: Contact Name Extraction on Team Pages)
+Objective
+The enrichment pipeline has improved materially, but contact name extraction remains the single biggest weakness. Roughly 25% of leads still lack a contact name, and some false positives persist.
+This task is to materially improve the ability to extract real individual names from modern team/about pages, especially where sites use simple heading-based layouts with no helpful CSS classes or schema.
+A concrete failing example is:
+https://www.medicspot.co.uk/about/team
+This page lists dozens of clinicians (e.g. “Dr Abby Hyams”, “Laura Reed”) clearly and repeatedly — yet the current enricher extracts none of them.
+🚨 Root Cause (Confirmed)
+The current logic fails because it:
+Over-relies on CSS class names (team, staff, bio, etc.)
+Assumes schema.org or structured “team card” layouts
+Does not treat repeated headings + short role text as a team list
+Does not promote multiple valid names when no single “owner” is obvious
+Medicspot (and many modern healthcare sites) use:
+Flat HTML
+Repeated <h3> / <h4> headings
+A role line immediately following each heading
+No schema, no special classes
+This pattern is currently invisible to the enricher.
+🎯 Required Enhancements (Design-Level, Not Line-Level)
+1️⃣ Add a Heading-Driven Team Detection Layer
+Introduce a dedicated detection step (early in website enrichment) that:
+Scans all heading tags (h1–h5, not capped at 15)
+Identifies multiple headings on the same page that:
+Pass _looks_like_name
+Pass _is_valid_contact_name
+Treats this as a team page pattern, even without class or schema signals
+This logic should run before deep DOM scan and OpenAI fallback.
+2️⃣ Use Proximity-Based Role Confirmation
+When a heading looks like a name:
+Inspect immediately following sibling text (p, div, span)
+If the next block is:
+Short (<100 chars)
+Contains a role keyword (doctor, therapist, practitioner, GP, consultant, etc.)
+Promote the heading as a confirmed contact
+This mirrors the Medicspot structure exactly.
+3️⃣ Treat “Dr First Last” as High-Confidence
+Names beginning with:
+Dr, Dr., Professor, etc.
+Should:
+Bypass some of the stricter context requirements
+Be accepted as valid contacts even if role text is minimal
+Be prioritised higher in role sorting
+Currently these are often filtered out too early.
+4️⃣ Improve _find_multiple_contacts() Independence
+Refactor logic so that:
+_find_multiple_contacts() does not require team-related CSS classes
+It can operate on:
+Any page
+With repeated valid headings
+Using structure + proximity rather than DOM labels
+Medicspot should return 20+ contacts from this method alone.
+5️⃣ Promote a “Best Available Contact” When No Owner Exists
+For clinics with many clinicians:
+Select the highest-role contact (doctor > therapist > practitioner)
+If roles are equal:
+Use first listed
+Set:
+contact_name
+contact_source = website_team_heading
+contact_verified = false
+Do not leave contact_name empty just because there is no obvious owner.
+6️⃣ Add Diagnostic Notes for Heading-Based Detection
+To aid review and tuning, add refinement notes such as:
+team_detected_via_headings
+contact_from_heading_role_pair
+multi_contact_team_page
+These will help validate improvements at scale.
+✅ Acceptance Criteria
+After this change:
+Medicspot’s team page should yield:
+Multiple valid contact names
+A sensible primary contact
+Similar healthcare / clinic team pages should no longer produce empty contact fields
+Overall “missing_name” rate should drop well below 25%
+False positives should not increase
