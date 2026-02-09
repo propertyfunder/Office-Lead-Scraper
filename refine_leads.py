@@ -28,6 +28,25 @@ GENERIC_PREFIXES = {
     'health', 'wellness', 'fitness', 'clientcare'
 }
 
+ROLE_EMAIL_WORDS = {
+    'clinic', 'assistant', 'manager', 'reception', 'admin', 'secretary',
+    'accounts', 'billing', 'podiatry', 'physio', 'osteo', 'dental',
+    'surgery', 'practice', 'studio', 'spa', 'salon', 'therapy',
+    'treatment', 'client', 'patient', 'care', 'nurse', 'doctor',
+    'head', 'lead', 'senior', 'director', 'coordinator',
+    'customer', 'relations', 'reservations', 'service', 'cservice',
+    'northdene', 'londonroad', 'camberley', 'godalming', 'guildford',
+    'farnham', 'woking', 'haslemere', 'cranleigh', 'bramley',
+    'elstead', 'milford', 'witley', 'churt', 'hindhead',
+}
+
+PERSONAL_EMAIL_DOMAINS = {
+    'gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'icloud.com',
+    'me.com', 'live.com', 'btinternet.com', 'sky.com', 'virginmedia.com',
+    'talktalk.net', 'aol.com', 'protonmail.com', 'mail.com', 'msn.com',
+    'googlemail.com'
+}
+
 BUSINESS_WORDS = {
     'clinic', 'clinics', 'surgery', 'surgeries', 'medical', 'dental',
     'practice', 'practices', 'centre', 'centers', 'center', 'centres',
@@ -171,10 +190,14 @@ def is_valid_name(name: str) -> str:
 
     for w in name_words:
         alpha = re.sub(r'[^a-zA-Z]', '', w).lower()
-        if len(alpha) >= 2 and alpha[:2] in UNUSUAL_BIGRAMS:
-            return 'review'
-        if len(alpha) >= 3 and alpha[:3] in UNUSUAL_TRIGRAMS:
-            return 'review'
+        if len(alpha) >= 2:
+            for i in range(len(alpha) - 1):
+                if alpha[i:i+2] in UNUSUAL_BIGRAMS:
+                    return 'review'
+        if len(alpha) >= 3:
+            for i in range(len(alpha) - 2):
+                if alpha[i:i+3] in UNUSUAL_TRIGRAMS:
+                    return 'review'
 
     if re.search(r'(.)\1{2,}', alpha_only.lower()):
         return 'review'
@@ -237,6 +260,63 @@ def classify_email(email: str) -> str:
     if local in GENERIC_PREFIXES:
         return 'generic'
     return 'personal'
+
+
+def is_email_name_gibberish(email: str) -> bool:
+    if not email or '@' not in email:
+        return False
+    local = email.split('@')[0].lower()
+    if local in GENERIC_PREFIXES:
+        return False
+    parts = re.split(r'[._\-]', local)
+    for part in parts:
+        alpha = re.sub(r'[^a-z]', '', part)
+        if not alpha or len(alpha) < 2:
+            continue
+        vowels = sum(1 for c in alpha if c in 'aeiouy')
+        if vowels == 0 and len(alpha) >= 3:
+            return True
+        if len(alpha) >= 3 and vowels / len(alpha) < 0.2:
+            return True
+        if len(alpha) >= 2 and alpha[:2] in UNUSUAL_BIGRAMS:
+            return True
+        if len(alpha) >= 3 and alpha[:3] in UNUSUAL_TRIGRAMS:
+            return True
+    return False
+
+
+def _local_looks_like_person_name(local: str) -> bool:
+    segments = re.split(r'[._\-]', local)
+    alpha_segments = [s for s in segments if re.match(r'^[a-z]{2,}$', s)]
+    skip_words = GENERIC_PREFIXES | ROLE_EMAIL_WORDS | BUSINESS_WORDS
+    alpha_segments = [s for s in alpha_segments if s not in skip_words]
+    if len(alpha_segments) >= 2:
+        return True
+    return False
+
+
+def email_matches_contact(email: str, contact_name: str) -> bool:
+    if not email or not contact_name or '@' not in email:
+        return True
+    domain = email.split('@')[-1].lower()
+    if domain in PERSONAL_EMAIL_DOMAINS:
+        return True
+    local = email.split('@')[0].lower()
+    if not _local_looks_like_person_name(local):
+        return True
+    name_parts = [re.sub(r'[^a-z]', '', w.lower()) for w in contact_name.split() if len(w) >= 2]
+    name_parts = [p for p in name_parts if p and p not in {t for t in TITLE_PREFIXES}]
+    if not name_parts:
+        return True
+    for part in name_parts:
+        if len(part) >= 3 and part in local:
+            return True
+    if len(name_parts) >= 2:
+        first = name_parts[0]
+        last = name_parts[-1]
+        if first and last and first[0] == local[0:1] and last in local:
+            return True
+    return False
 
 
 def generate_team_email_guesses(contact_names_str: str, domain: str, exclude_name: str = '') -> str:
@@ -436,6 +516,22 @@ def process_lead(lead: dict, ch_data: dict) -> dict:
                 lead['generic_email'] = existing_email
             lead['email'] = ''
             existing_email = ''
+
+    if existing_email and classify_email(existing_email) == 'personal':
+        contact = lead.get('contact_name', '').strip()
+        if is_email_name_gibberish(existing_email):
+            notes = lead.get('refinement_notes', '') or ''
+            notes_list = [n.strip() for n in notes.split(';') if n.strip()]
+            notes_list.append(f"gibberish_email_cleared:{existing_email}")
+            lead['refinement_notes'] = '; '.join(notes_list)
+            existing_email = ''
+            lead['email'] = ''
+        elif contact and not email_matches_contact(existing_email, contact):
+            notes = lead.get('refinement_notes', '') or ''
+            notes_list = [n.strip() for n in notes.split(';') if n.strip()]
+            notes_list.append(f"email_contact_mismatch:{existing_email}")
+            lead['refinement_notes'] = '; '.join(notes_list)
+            lead['name_review_needed'] = 'True'
 
     lead['contact_email'] = existing_email
 
