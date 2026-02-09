@@ -274,6 +274,8 @@ class LeadEnricher:
         notes = lead.refinement_notes or ""
         if 'possible_placeholder_name' in notes and 'suspicious_name_replaced' not in notes:
             score -= 1
+        if 'single_name_only' in notes:
+            score -= 0.5
         
         final = min(5, max(1, round(score)))
         return str(final)
@@ -1275,15 +1277,16 @@ class LeadEnricher:
                      'who we are', 'meet us', 'our people', 'our clinicians',
                      'our practitioners', 'our therapists', 'contact']
 
-        MEDIUM_INTENT = ['/privacy', '/legal', '/terms', '/cookies', '/disclaimer']
-        MEDIUM_TEXT = ['privacy', 'legal', 'terms', 'cookies']
-
         LOW_INTENT = ['/service', '/treatment', '/blog', '/news', '/faq', '/gallery',
                       '/testimonial', '/review', '/price', '/fee', '/book', '/appointment',
                       '/shop', '/product', '/event', '/class', '/schedule', '/timetable']
         LOW_TEXT = ['services', 'treatments', 'blog', 'news', 'faq', 'gallery',
                     'testimonials', 'reviews', 'pricing', 'fees', 'book now',
                     'booking', 'appointments', 'shop', 'classes', 'timetable']
+
+        JUNK_INTENT = ['/privacy', '/legal', '/terms', '/cookies', '/disclaimer',
+                       '/cookie-policy', '/privacy-policy', '/terms-of-service']
+        JUNK_TEXT = ['privacy', 'legal', 'terms', 'cookies', 'disclaimer']
 
         for kw in HIGH_INTENT:
             if kw in href_lower:
@@ -1292,19 +1295,19 @@ class LeadEnricher:
             if kw in text_lower:
                 return 100
 
-        for kw in MEDIUM_INTENT:
+        for kw in JUNK_INTENT:
             if kw in href_lower:
-                return 50
-        for kw in MEDIUM_TEXT:
+                return 5
+        for kw in JUNK_TEXT:
             if kw in text_lower:
-                return 50
+                return 5
 
         for kw in LOW_INTENT:
             if kw in href_lower:
-                return 10
+                return 15
         for kw in LOW_TEXT:
             if kw in text_lower:
-                return 10
+                return 15
 
         noisy_only = False
         for kw in ['our-', 'the-']:
