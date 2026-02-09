@@ -369,6 +369,9 @@ class LeadEnricher:
                 web_contacts = web_result['contacts']
                 web_generic_email = web_result['generic_email']
                 known_format = web_result['known_email_format']
+                web_notes = web_result.get('_notes', [])
+                if web_notes:
+                    notes.extend(web_notes)
                 
                 if web_generic_email and _is_empty(lead.generic_email):
                     lead.generic_email = clean_email(web_generic_email)
@@ -382,8 +385,9 @@ class LeadEnricher:
                         sources_tried.append("website")
                     if lead.email:
                         print(f"    [Website] Found email: {lead.email}")
+                is_single_name = 'single_name_only' in web_notes if web_notes else False
                 if found_contact and _is_empty(lead.contact_name):
-                    if self._is_valid_contact_name(found_contact):
+                    if self._is_valid_contact_name(found_contact) or is_single_name:
                         if self._is_domain_name(found_contact, lead.website):
                             notes.append(f"placeholder_name_detected:{found_contact}")
                             print(f"    [Website] Domain-matching name rejected: {found_contact}")
@@ -413,7 +417,7 @@ class LeadEnricher:
                             contact_source = "website"
                             print(f"    [Website] Found contact: {lead.contact_name}")
                         if lead.contact_name:
-                            lead.contact_verified = "true"
+                            lead.contact_verified = "false" if is_single_name else "true"
                             if "website" not in sources_tried:
                                 sources_tried.append("website")
                             
@@ -882,7 +886,9 @@ class LeadEnricher:
             'contacts': [],
             'source': '',
             'text': '',
-            'known_email_format': ''
+            'known_email_format': '',
+            '_notes': [],
+            'company_number': ''
         }
         personal_email = ""
         generic_email = ""
@@ -1039,7 +1045,78 @@ class LeadEnricher:
                     contact = all_deep_contacts[0]['name']
                     source = "website"
                     print(f"      [Stage 2] Found contact: {contact}")
-        
+
+        if not contact and homepage_soup:
+            print(f"      [Stage 3] CTA link discovery for about/team pages...")
+            already_visited = set(discovered_pages[:max_subpages])
+            cta_links = self._discover_cta_about_links(homepage_soup, root_url)
+            cta_links = [u for u in cta_links if u not in already_visited]
+            for cta_url in cta_links[:3]:
+                try:
+                    rate_limit(0.2, 0.5)
+                    response = make_request(cta_url)
+                    if not response or response.status_code != 200:
+                        continue
+                    cta_soup = BeautifulSoup(response.text, 'lxml')
+                    cta_text = cta_soup.get_text(separator=' ')
+                    all_text += "\n" + cta_text
+                    found = self._find_contact_name(cta_soup)
+                    if found:
+                        contact = found
+                        source = "website"
+                        result['_notes'].append('cta_about_page_followed')
+                        print(f"      [Stage 3] Found contact via CTA: {contact}")
+                    if not personal_email:
+                        found_email = self._find_email(cta_soup, cta_text, site_domain)
+                        if found_email:
+                            all_emails_found.append(found_email)
+                            if self._is_personal_email(found_email):
+                                if not personal_domain_email:
+                                    personal_domain_email = found_email
+                            elif self._is_generic_email(found_email):
+                                if not generic_email:
+                                    generic_email = found_email
+                            else:
+                                personal_email = found_email
+                    multi = self._find_multiple_contacts(cta_soup)
+                    for c in multi:
+                        if c['name'].lower() not in {x['name'].lower() for x in all_contacts}:
+                            all_contacts.append(c)
+                    if contact:
+                        break
+                except Exception as e:
+                    log_verbose(f"Error checking CTA link {cta_url}: {e}")
+                    continue
+
+        if not contact:
+            soups_to_check = []
+            if homepage_soup:
+                soups_to_check.append(homepage_soup)
+            soups_to_check.extend(subpage_soups)
+            for scan_soup in soups_to_check:
+                first_name = self._extract_first_name_only(scan_soup)
+                if first_name:
+                    contact = first_name
+                    source = "website"
+                    result['_notes'].append('single_name_only')
+                    print(f"      [Fallback] First-name-only contact: {contact}")
+                    break
+
+        company_number = ''
+        if all_text:
+            company_number = self._extract_company_number(all_text)
+            if company_number:
+                result['_notes'].append(f'company_number_found:{company_number}')
+                print(f"      [CH] Company number found on website: {company_number}")
+                if not contact or not self._is_valid_contact_name(contact):
+                    director = self._lookup_director_by_company_number(company_number)
+                    if director:
+                        if not contact:
+                            contact = director
+                            source = "companies_house"
+                        result['_notes'].append(f'director_from_ch_number:{director}')
+                        print(f"      [CH] Director from company number: {director}")
+
         if contact and contact.lower() not in {c['name'].lower() for c in all_contacts}:
             all_contacts.insert(0, {'name': normalize_name(contact), 'title': ''})
         
@@ -1070,34 +1147,189 @@ class LeadEnricher:
         result['source'] = source
         result['text'] = all_text[:5000]
         result['known_email_format'] = known_format
+        result['company_number'] = company_number
         return result
     
+    def _discover_cta_about_links(self, soup: BeautifulSoup, base_url: str) -> List[str]:
+        if not soup:
+            return []
+        base_domain = self._normalize_domain(urlparse(base_url).netloc)
+        cta_keywords = ['about me', 'about us', 'my story', 'our story', 'meet',
+                        'who i am', 'who we are', 'your therapist', 'your practitioner',
+                        'about the', 'the team', 'our team', 'learn more about',
+                        'read more about', 'meet the', 'about']
+        cta_url_keywords = ['about', 'team', 'meet', 'story', 'who', 'therapist',
+                            'practitioner', 'clinician', 'people', 'staff']
+        found = []
+        seen = set()
+        for link in soup.find_all('a', href=True):
+            href = str(link.get('href', '') or '')
+            text = link.get_text().lower().strip()
+            if not href or href.startswith('#') or href.startswith('javascript:'):
+                continue
+            href_lower = href.lower()
+            match = False
+            for kw in cta_keywords:
+                if kw in text:
+                    match = True
+                    break
+            if not match:
+                for kw in cta_url_keywords:
+                    if kw in href_lower:
+                        match = True
+                        break
+            if match:
+                full_url = urljoin(base_url, href)
+                parsed = urlparse(full_url)
+                link_domain = self._normalize_domain(parsed.netloc)
+                if (link_domain == base_domain or not parsed.netloc) and full_url not in seen:
+                    if not any(x in href_lower for x in ['mailto:', 'tel:', '.pdf', '.jpg', '.png']):
+                        found.append(full_url)
+                        seen.add(full_url)
+        return found[:3]
+
+    def _extract_first_name_only(self, soup: BeautifulSoup) -> str:
+        patterns = [
+            r"(?:Hi,?\s+I'?m|Hello,?\s+I'?m|I'?m|I am|My name is)\s+([A-Z][a-z]{2,15})[,.\s]",
+            r"(?:Hi,?\s+I'?m|Hello,?\s+I'?m)\s+([A-Z][a-z]{2,15})\b",
+        ]
+        role_context = r'(?:founder|owner|director|therapist|practitioner|clinician|physiotherapist|osteopath|chiropractor|psychologist|counsellor|coach|instructor|nutritionist|dentist)'
+        
+        for elem in soup.find_all(['p', 'span', 'div', 'h1', 'h2', 'h3', 'h4', 'li', 'strong', 'b']):
+            text = clean_text(elem.get_text())
+            if not text or len(text) > 500:
+                continue
+            for pattern in patterns:
+                match = re.search(pattern, text)
+                if match:
+                    first_name = match.group(1)
+                    if first_name.lower() in self.COMMON_UK_FIRST_NAMES:
+                        if re.search(role_context, text, re.I):
+                            return first_name
+        return ''
+
+    def _extract_company_number(self, text: str) -> str:
+        patterns = [
+            r'(?:company|co\.?)\s*(?:number|no\.?|reg(?:istration)?\.?)\s*[:\s]*(\d{6,8})',
+            r'(?:registered|registration)\s*(?:number|no\.?)\s*[:\s]*(\d{6,8})',
+            r'(?:companies?\s+house)\s*[:\s]*(?:number|no\.?)?\s*[:\s]*(\d{6,8})',
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, text, re.I)
+            if match:
+                num = match.group(1)
+                if 6 <= len(num) <= 8:
+                    return num.zfill(8)
+        return ''
+
+    def _lookup_director_by_company_number(self, company_number: str) -> str:
+        if not self.companies_house_api_key or not company_number:
+            return ''
+        try:
+            rate_limit(0.3, 0.5)
+            officers_response = requests.get(
+                f"{self.ch_base_url}/company/{company_number}/officers",
+                params={"items_per_page": 10},
+                auth=(self.companies_house_api_key, ""),
+                timeout=10
+            )
+            if officers_response.status_code != 200:
+                return ''
+            officers_data = officers_response.json()
+            officers = officers_data.get("items", [])
+            active_officers = [o for o in officers if not o.get("resigned_on")]
+            active_officers.sort(key=lambda x: x.get("appointed_on", ""), reverse=True)
+            for officer in active_officers:
+                role = officer.get("officer_role", "").lower()
+                if role in ["director", "managing-director", "corporate-director"]:
+                    name = officer.get("name", "")
+                    if name:
+                        formatted = self._format_companies_house_name(name)
+                        if formatted:
+                            return formatted
+            for officer in active_officers:
+                name = officer.get("name", "")
+                if name:
+                    formatted = self._format_companies_house_name(name)
+                    if formatted:
+                        return formatted
+        except Exception as e:
+            log_verbose(f"CH lookup by number error: {e}")
+        return ''
+
     def _normalize_domain(self, domain: str) -> str:
         if domain.startswith('www.'):
             return domain[4:]
         return domain
     
+    def _score_url_priority(self, url: str, anchor_text: str) -> int:
+        href_lower = url.lower()
+        text_lower = anchor_text.lower()
+        combined = href_lower + ' ' + text_lower
+
+        HIGH_INTENT = ['about-me', 'about_me', 'aboutme', 'meet-the-team', 'meet_the_team',
+                        '/team', '/about', '/about-us', '/about_us', '/people', '/staff',
+                        '/who-we-are', '/clinicians', '/practitioners', '/therapists',
+                        '/our-team', '/our-people', '/meet-us', '/contact']
+        HIGH_TEXT = ['about me', 'about us', 'meet the team', 'our team', 'the team',
+                     'who we are', 'meet us', 'our people', 'our clinicians',
+                     'our practitioners', 'our therapists', 'contact']
+
+        MEDIUM_INTENT = ['/privacy', '/legal', '/terms', '/cookies', '/disclaimer']
+        MEDIUM_TEXT = ['privacy', 'legal', 'terms', 'cookies']
+
+        LOW_INTENT = ['/service', '/treatment', '/blog', '/news', '/faq', '/gallery',
+                      '/testimonial', '/review', '/price', '/fee', '/book', '/appointment',
+                      '/shop', '/product', '/event', '/class', '/schedule', '/timetable']
+        LOW_TEXT = ['services', 'treatments', 'blog', 'news', 'faq', 'gallery',
+                    'testimonials', 'reviews', 'pricing', 'fees', 'book now',
+                    'booking', 'appointments', 'shop', 'classes', 'timetable']
+
+        for kw in HIGH_INTENT:
+            if kw in href_lower:
+                return 100
+        for kw in HIGH_TEXT:
+            if kw in text_lower:
+                return 100
+
+        for kw in MEDIUM_INTENT:
+            if kw in href_lower:
+                return 50
+        for kw in MEDIUM_TEXT:
+            if kw in text_lower:
+                return 50
+
+        for kw in LOW_INTENT:
+            if kw in href_lower:
+                return 10
+        for kw in LOW_TEXT:
+            if kw in text_lower:
+                return 10
+
+        noisy_only = False
+        for kw in ['our-', 'the-']:
+            if kw in href_lower:
+                noisy_only = True
+        if noisy_only:
+            return 20
+
+        return 30
+
     def _discover_nav_pages(self, soup: BeautifulSoup, base_url: str) -> List[str]:
         if not soup:
             return []
         
-        discovered = []
+        scored_urls = []
         base_domain = self._normalize_domain(urlparse(base_url).netloc)
-        
-        nav_elements = soup.find_all(['nav', 'header'])
-        if not nav_elements:
-            nav_elements = [soup]
-        
         base_path = urlparse(base_url).path.rstrip('/')
+        seen_urls = set()
         
         all_links = soup.find_all('a', href=True)
-        matched = 0
         for link in all_links:
             href = str(link.get('href', '') or '')
             text = link.get_text().lower().strip()
             
             if any(kw in href.lower() or kw in text for kw in self.nav_keywords):
-                matched += 1
                 full_url = urljoin(base_url, href)
                 parsed = urlparse(full_url)
                 link_domain = self._normalize_domain(parsed.netloc)
@@ -1105,15 +1337,21 @@ class LeadEnricher:
                 
                 if link_domain == base_domain or not parsed.netloc:
                     is_root = link_path == '' or link_path == base_path
-                    if full_url not in discovered and not is_root:
+                    if full_url not in seen_urls and not is_root:
                         if not any(x in href.lower() for x in ['#', 'javascript:', 'mailto:', 'tel:', '.pdf', '.jpg', '.png']):
-                            discovered.append(full_url)
+                            score = self._score_url_priority(full_url, text)
+                            scored_urls.append((score, full_url))
+                            seen_urls.add(full_url)
+        
+        scored_urls.sort(key=lambda x: x[0], reverse=True)
+        discovered = [url for _, url in scored_urls]
         
         if len(discovered) < 3:
             for path in self.fallback_page_paths:
                 fallback_url = urljoin(base_url, path)
-                if fallback_url not in discovered:
+                if fallback_url not in seen_urls:
                     discovered.append(fallback_url)
+                    seen_urls.add(fallback_url)
                 if len(discovered) >= 10:
                     break
         
@@ -1242,6 +1480,27 @@ class LeadEnricher:
         
         return ""
     
+    def _has_nearby_role_context(self, element) -> bool:
+        role_terms = {'founder', 'owner', 'director', 'therapist', 'practitioner',
+                      'principal', 'clinician', 'osteopath', 'chiropractor',
+                      'physiotherapist', 'psychologist', 'counsellor', 'counselor',
+                      'nutritionist', 'instructor', 'coach', 'doctor', 'dentist',
+                      'managing director', 'clinical director', 'practice owner',
+                      'lead therapist', 'head therapist', 'senior therapist',
+                      'about me', 'your therapist', 'your practitioner',
+                      'meet', 'introducing', 'welcome'}
+        context_parts = []
+        if element.parent:
+            context_parts.append(element.parent.get_text().lower())
+        next_sib = element.find_next(['p', 'span', 'div', 'h2', 'h3', 'h4', 'h5'])
+        if next_sib:
+            context_parts.append(next_sib.get_text().lower()[:200])
+        prev_sib = element.find_previous(['p', 'span', 'div', 'h2', 'h3', 'h4'])
+        if prev_sib:
+            context_parts.append(prev_sib.get_text().lower()[:200])
+        context = ' '.join(context_parts)
+        return any(term in context for term in role_terms)
+
     def _find_contact_name(self, soup: BeautifulSoup) -> str:
         meta_author = soup.find('meta', attrs={'name': 'author'})
         if meta_author:
@@ -1291,6 +1550,23 @@ class LeadEnricher:
                 text = clean_text(candidate.get_text())
                 if self._looks_like_name(text):
                     return text
+
+        for heading in soup.find_all(['h1', 'h2', 'h3', 'h4'], limit=15):
+            text = clean_text(heading.get_text())
+            if text and self._looks_like_name(text) and self._is_valid_contact_name(text):
+                if self._has_nearby_role_context(heading):
+                    return text
+
+        for heading in soup.find_all(['h1', 'h2'], limit=6):
+            text = clean_text(heading.get_text())
+            if text and self._looks_like_name(text) and self._is_valid_contact_name(text):
+                words = text.split()
+                name_words = [w for w in words if w.lower().rstrip('.') not in 
+                              {'dr', 'mr', 'mrs', 'ms', 'miss', 'prof', 'professor'}]
+                if 2 <= len(name_words) <= 3:
+                    first = name_words[0].replace("'", "").replace("-", "").lower()
+                    if first in self.COMMON_UK_FIRST_NAMES:
+                        return text
         
         page_text = soup.get_text()
         names_found = self._extract_names_from_page_text(page_text)

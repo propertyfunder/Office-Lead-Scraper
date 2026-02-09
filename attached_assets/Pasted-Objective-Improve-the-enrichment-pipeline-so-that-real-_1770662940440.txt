@@ -1,0 +1,88 @@
+Objective
+Improve the enrichment pipeline so that real individual contacts are reliably extracted from small business / clinic websites, especially sole traders and small practices, while reducing false negatives caused by navigation noise, template quirks, and overly strict heuristics.
+This work focuses on recovering missing contact names (owners, founders, principals, clinicians) that do exist on websites but are currently not being detected.
+Key Problems Observed
+From manual spot-checks of enriched data:
+Valid names exist on About / Team pages but aren’t visited
+/about, /about-me, /team, /clinicians pages are often pushed out of the crawl due to nav noise and hard slicing to the first N links.
+Homepage headings contain valid names, but aren’t extracted
+Many sites present the owner/founder as a hero heading (e.g. <h1>Jane Smith</h1>), not in schema or “about” sections.
+Sole traders often present only a first name
+Copy like “Hi, I’m Louise” or “I’m Holly, founder of…” is common.
+These are currently rejected outright.
+Company number appears on Privacy / Legal pages
+Director names are recoverable via Companies House if the company number is extracted, but the current pipeline does not do this.
+Over-broad nav keyword matching crowds out high-value pages
+Generic patterns like our- / the- cause many service URLs to qualify, pushing “team/about” pages out of the crawl window.
+Required Enhancements (High Level)
+1️⃣ Prioritise High-Intent Pages Before Crawling
+In navigation discovery:
+Assign priority scores to discovered URLs before slicing:
+Highest:
+/about, /about-us, /about-me, /team, /meet-the-team, /people, /who-we-are, /clinicians, /practitioners, /contact
+Medium:
+/privacy, /legal, /terms
+Low:
+services, treatments, blogs, bookings
+Sort URLs by priority before applying max page limits.
+Reduce or de-prioritise noisy keywords like our- and the-.
+2️⃣ Add “Heading Candidate” Fallback for Contact Names
+In _find_contact_name():
+Before deep pattern scans, inspect:
+The first N <h1>–<h4>, <strong>, <b>, and prominent <span> elements.
+If a valid full name (2 words) is found:
+Accept it if it passes existing name validation.
+Boost confidence if nearby text includes role terms (founder, owner, director, therapist, principal).
+This directly addresses modern CMS templates (Wix, Squarespace).
+3️⃣ Expand Internal Link Discovery Beyond <nav>/<header>
+If no contact name is found on the homepage:
+Collect internal <a> links anywhere on the page where anchor text or URL suggests:
+about, about me, my story, meet, who I am, team, therapist, practitioner
+Visit the top 2–3 highest-confidence links, even if they were not in the nav set.
+This captures CTA-driven “About Me” journeys.
+4️⃣ Add Controlled Support for Sole Trader First-Name-Only Cases
+As a last-resort fallback only:
+Detect patterns like:
+“Hi, I’m Louise”
+“I’m Holly, founder…”
+If:
+role context exists (founder/therapist/owner), AND
+no better full name is found after all other attempts
+Then:
+Store the first name as contact_name
+Set flags:
+contact_verified = false
+add refinement note: single_name_only
+apply a confidence score penalty
+This improves coverage without overstating certainty.
+5️⃣ Extract Company Numbers from Websites
+During website parsing:
+Scan page text (especially Privacy / Legal pages) for:
+Company number:\s*\d{6,8}
+If found:
+Store company number on the lead
+Add a Companies House lookup by company number
+Retrieve active director
+Populate:
+principal_name
+backfill contact_name if missing
+generate principal email guess using website domain
+This unlocks director recovery for many “Ltd” sites that hide people publicly.
+6️⃣ Preserve Data Integrity & Observability
+Do not overwrite valid names/emails once set.
+Always log why a fallback was used:
+homepage_heading_name
+cta_about_page_followed
+single_name_only
+company_number_extracted
+director_from_ch_number
+Ensure these notes flow into refinement_notes.
+Acceptance Criteria
+After implementation:
+A meaningful reduction in missing_name records.
+Visible increase in:
+homepage-derived names
+about-page-derived names
+Companies House recoveries via company number
+No regression in false positives (company names or placeholders incorrectly treated as people).
+All new logic reflected in CSV exports and dashboard stats.
