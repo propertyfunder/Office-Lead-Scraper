@@ -22,6 +22,10 @@ args = "Dashboard"
 task = "workflow.run"
 args = "CH Enrichment"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Heading Team Enrichment"
+
 [[workflows.workflow]]
 name = "Dashboard"
 author = "agent"
@@ -41,6 +45,17 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "python ch_enrich.py"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow]]
+name = "Heading Team Enrichment"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python run_heading_team_enrichment.py"
 
 [workflows.workflow.metadata]
 outputType = "console"
