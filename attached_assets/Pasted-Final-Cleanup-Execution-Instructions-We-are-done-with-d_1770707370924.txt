@@ -1,0 +1,58 @@
+Final Cleanup Execution Instructions
+We are done with discovery and enrichment.
+This phase is quality control only.
+Goal
+Produce a clean, defensible final dataset by:
+Removing fake / incorrect contact names
+Replacing guessed emails where real website emails exist
+Preserving all previously verified data
+Avoiding unnecessary re-enrichment
+Step 1: Run Stats (Confirmation Only)
+Run:
+python run_cleanup.py --stats
+Confirm:
+~100–130 suspect contact names
+~15–25 guessed email issues
+No unexpected spikes
+Do not change logic based on stats unless something looks clearly wrong.
+Step 2: Dry Run (Mandatory Checkpoint)
+Run:
+python run_cleanup.py --dry-run
+Confirm the dry run shows:
+Fake UI names being cleared or replaced
+Legitimate names preserved when verified by website or CH
+Guessed emails replaced only when a real email is found
+No previously verified contact is removed without replacement
+If anything looks off, stop here and fix before running live.
+Step 3: Execute Cleanup (Main Action)
+Run:
+python run_cleanup.py --run
+Rules enforced by the pipeline (do not override):
+No Companies House re-calls
+No LinkedIn scraping
+OpenAI only used as last resort and never overrides verified contacts
+Website-only re-scraping for flagged records
+Previously verified names are protected
+Step 4: Output Files
+After completion, produce:
+unit8_leads_enriched.csv
+→ final cleaned dataset
+unit8_leads_excluded.csv
+→ businesses with no valid contact after cleanup (acceptable outcome)
+Console summary:
+Contacts removed
+Contacts replaced
+Emails corrected
+Records left intentionally incomplete
+Step 5: Final Validation (No More Edits)
+Run:
+python run_cleanup.py --stats
+We are done when:
+No UI / garbage names remain
+Guessed emails only exist where no website email exists
+≥90% of remaining contact names are clearly real people
+Some records remain missing contacts (this is expected and correct)
+🚫 Do not attempt further enrichment
+🚫 Do not loosen name validation
+🚫 Do not chase the last 5–10%
+This is the final dataset.
