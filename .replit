@@ -26,6 +26,10 @@ args = "CH Enrichment"
 task = "workflow.run"
 args = "Surgical Enrichment"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Lead Cleanup"
+
 [[workflows.workflow]]
 name = "Dashboard"
 author = "agent"
@@ -56,6 +60,17 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "python run_surgical_enrichment.py --stats"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow]]
+name = "Lead Cleanup"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python run_cleanup.py --stats"
 
 [workflows.workflow.metadata]
 outputType = "console"

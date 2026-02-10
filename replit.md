@@ -51,6 +51,18 @@ The system employs a modular Python architecture for scraping, enrichment, AI sc
     - **Performance:** ~12 leads/min (vs ~1/min for monolithic enricher) due to tool isolation and page caps.
     - **Success criteria:** Target ~85-90% real defensible contacts, ~10-15% explicitly marked unreachable.
 
+**Quality Cleanup Pipeline (Feb 2026):**
+    - **Purpose:** Post-enrichment quality control to remove/correct fake contact names and replace guessed emails with real ones. Accepts that some businesses will never yield a named contact.
+    - **Identification:** Flags suspect names via: UI artifact detection (60+ known patterns), address fragment detection, role-only names, company name echoes (only for non-person names), concatenated text, failed `_is_valid_contact_name`, title-only names (e.g. "Dr Fairclough"), low confidence (<=2), and refinement_notes markers.
+    - **Email flags:** Identifies guessed emails with bad patterns (account.suspended@, shopping.cart@, etc.) and guessed emails where website/generic email exists.
+    - **Re-scrape:** Website-only (no Companies House, no LinkedIn, no OpenAI in first pass). Focuses on contact/team/about pages, footer/header, mailto links, schema.org.
+    - **Contact resolution:** Replaces fake names with real ones found on website, selects most senior contact (role priority: owner > founder > director > doctor > therapist), clears role-only names, preserves multi-contact data.
+    - **Email correction:** Replaces guessed emails with real website emails, preserves old guesses in personal_email_guesses.
+    - **OpenAI fallback:** Only used when a fake name was removed AND no replacement found AND website text exists. Never overrides verified website contacts.
+    - **Outputs:** Cleaned `unit8_leads_enriched.csv` + separate `unit8_leads_missing_name.csv` for manual review. Per-lead refinement_notes logging.
+    - **CLI:** `run_cleanup.py --stats | --dry-run | --run [--limit N] [--skip-rescrape] [--skip-openai] [--openai-only]`
+    - **Success criteria:** ≥90% of contact_name values are real/defensible, zero UI/placeholder names, guessed emails only where no website email exists.
+
 **System Design Choices:**
 - **Modularity:** Clear separation of concerns for maintainability and scalability.
 - **API-First Scraping:** Prioritizes APIs over traditional web scraping to ensure reliability.

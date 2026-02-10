@@ -1,0 +1,96 @@
+Context (read carefully):
+Well done — the enrichment pipeline is now mature and has been exercised extensively. We have reached diminishing returns on net-new contact discovery. The remaining work is quality control, correction, and targeted re-scraping, not broad enrichment.
+We are accepting that some businesses will never yield a named contact (sole traders with minimal web presence, etc.). The objective now is to deliver a clean, defensible outreach dataset.
+🎯 Primary Objectives
+Remove or correct fake / incorrect contact names
+Replace guessed emails where a real email exists on the website
+Re-scrape only records that fail quality checks
+Preserve all valid existing data — no regressions
+🧹 Step 1: Identify Records Requiring Cleanup
+Create a working set of leads that meet any of the following conditions:
+A. Suspect / Fake Contact Names
+Flag leads where:
+contact_name is marked via refinement_notes as:
+possible_placeholder_name
+rejected_garbage_name
+vanity_name_match
+suspicious_name_replaced
+OR confidence_score <= 2
+OR contact_name fails _is_valid_contact_name under current logic
+OR contact_name is clearly a UI/website artefact (e.g. “Book Now”, “Opening Times”, “Gallery”, “Dermal Fillers”, etc.)
+👉 These records must not be trusted without revalidation.
+B. Guessed Emails Where a Real Email Likely Exists
+Flag leads where:
+email_guessed == "true"
+AND website_verified == "true"
+AND either:
+generic_email exists, or
+the website contains any mailto, schema email, or visible email text
+👉 These are high-value cleanup targets.
+🔁 Step 2: Targeted Re-Scraping (NO Full Re-Enrichment)
+For the flagged records only:
+Rules:
+❌ Do not re-run Companies House
+❌ Do not re-run LinkedIn
+❌ Do not use OpenAI in the first pass
+✅ Only scrape the website / Facebook page
+Focus of the re-scrape:
+Contact pages
+Team / About / Clinicians pages
+Footer and header elements
+Mailto links, schema.org JSON, aria/data attributes
+🧠 Step 3: Contact Name Resolution Logic
+When re-scraping:
+If a real person name is found on the site
+Replace contact_name
+Set contact_source = "website_verified"
+Set contact_verified = "true"
+If multiple people exist
+Select the most senior / relevant (owner, founder, director, lead clinician)
+Preserve others in contact_names
+If only role-based names exist (e.g. “The Team”, “Our Clinicians”)
+Clear contact_name
+Set contact_verified = "false"
+Add note: no_named_individual_found
+If no person name exists at all
+Clear fake name entirely
+Leave record as missing_name
+This is an acceptable final state
+⚠️ Do not invent names
+⚠️ Do not accept marketing or UI text as names
+✉️ Step 4: Email Correction Logic
+When re-scraping emails:
+If a real email is found on the website
+Replace email
+Set email_guessed = "false"
+Classify correctly (generic vs personal)
+Preserve guessed emails in personal_email_guesses (do not delete)
+If only guessed emails exist and no real email is found
+Leave guessed emails as-is
+Add note: email_guessed_only_no_website_email
+🤖 Step 5: OpenAI as a LAST Resort
+Only use OpenAI after website re-scrape if:
+A fake/placeholder name was removed
+AND no valid replacement was found
+AND sufficient website text exists
+OpenAI task:
+Validate whether any person appears to be the owner / practitioner
+Return null if uncertain
+⚠️ OpenAI must never override a verified website contact
+📊 Step 6: Final Cleanup Outputs
+After cleanup, ensure:
+Fake names are removed, not just flagged
+confidence_score is recalculated
+refinement_notes clearly explain:
+what was removed
+what was replaced
+or why the record remains incomplete
+No record is re-enriched unnecessarily
+Deliverables:
+Cleaned unit8_leads_enriched.csv
+Optional: separate CSV of records still missing_name for manual review
+✅ Success Criteria
+≥90% of remaining contact_name values are real, human, defensible
+Zero obvious UI/placeholder names remain
+Guessed emails only exist where no website email exists
+No regression of previously valid data
