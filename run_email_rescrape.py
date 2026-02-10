@@ -26,7 +26,7 @@ from src.models import BusinessLead
 
 INPUT_FILE = 'unit8_leads_enriched.csv'
 OUTPUT_FILE = 'unit8_leads_enriched.csv'
-HARD_TIMEOUT_SECONDS = 30
+HARD_TIMEOUT_SECONDS = 15
 BATCH_SIZE = 10
 
 BAD_EMAIL_PATTERNS = [
@@ -109,7 +109,12 @@ def is_qualifying(lead):
     personal_guesses = getattr(lead, 'personal_email_guesses', '') or ''
 
     notes = (lead.refinement_notes or '').lower()
-    if 'email_replaced_from_website' in notes or 'email_rescrape_done' in notes:
+    if any(marker in notes for marker in [
+        'email_replaced_from_website', 'email_rescrape_done',
+        'email_rescrape_no_email', 'email_rescrape_timeout',
+        'email_rescrape_error', 'website_email_not_found',
+        'pages_checked:', 'emails_found:', 'rescrape_skipped'
+    ]):
         return False, 'already_rescrape_done'
 
     if email_guessed:
@@ -193,7 +198,7 @@ def extract_emails_from_html(html_text, site_domain):
     return list(emails)
 
 
-def fetch_page(session, url, timeout=10):
+def fetch_page(session, url, timeout=6):
     try:
         resp = session.get(url, timeout=timeout, allow_redirects=True)
         if resp.status_code == 200:
@@ -250,7 +255,7 @@ def scrape_website_for_email(enricher, lead):
         if pages_checked >= max_pages:
             break
         page_url = base_url + path
-        html = fetch_page(session, page_url, timeout=8)
+        html = fetch_page(session, page_url, timeout=5)
         if html and len(html) > 500:
             pages_checked += 1
             page_emails = extract_emails_from_html(html, site_domain)
