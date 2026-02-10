@@ -117,6 +117,9 @@ def is_qualifying(lead):
     ]):
         return False, 'already_rescrape_done'
 
+    if not email or email == 'nan' or email.strip() == '':
+        return True, 'no_email'
+
     if email_guessed:
         return True, 'email_guessed_true'
 
@@ -135,6 +138,15 @@ def is_qualifying(lead):
     return False, 'not_qualifying'
 
 
+FREE_EMAIL_PROVIDERS = {
+    'gmail.com', 'googlemail.com', 'hotmail.com', 'hotmail.co.uk',
+    'outlook.com', 'live.com', 'live.co.uk', 'yahoo.com', 'yahoo.co.uk',
+    'icloud.com', 'me.com', 'aol.com', 'protonmail.com', 'proton.me',
+    'btinternet.com', 'sky.com', 'virginmedia.com', 'talktalk.net',
+    'mail.com', 'msn.com', 'zoho.com',
+}
+
+
 def domain_matches(email, website_url):
     if not email or not website_url:
         return False
@@ -147,6 +159,31 @@ def domain_matches(email, website_url):
         site_parts = site_domain.split('.')
         if len(email_parts) >= 2 and len(site_parts) >= 2:
             if email_parts[-2:] == site_parts[-2:]:
+                return True
+        if email_domain in FREE_EMAIL_PROVIDERS:
+            return True
+        site_core = site_domain.split('.')[0].replace('-', '').replace('_', '')
+        email_core = email_domain.split('.')[0].replace('-', '').replace('_', '')
+        if len(site_core) >= 4 and len(email_core) >= 4:
+            if site_core in email_core or email_core in site_core:
+                return True
+        generic_stems = {
+            'clinic', 'dental', 'physio', 'health', 'therapy', 'therapist',
+            'medical', 'surgery', 'practice', 'centre', 'center', 'studio',
+            'wellness', 'massage', 'beauty', 'guildford', 'surrey', 'farnham',
+            'godalming', 'woking', 'group', 'online', 'london', 'hampshire',
+        }
+
+        def strip_generic(core):
+            result = core
+            for stem in sorted(generic_stems, key=len, reverse=True):
+                result = result.replace(stem, '')
+            return result
+
+        site_brand = strip_generic(site_core)
+        email_brand = strip_generic(email_core)
+        if site_brand and email_brand and len(site_brand) >= 4 and len(email_brand) >= 4:
+            if site_brand == email_brand or site_brand in email_brand or email_brand in site_brand:
                 return True
         return False
     except Exception:
