@@ -1,0 +1,82 @@
+🔧 Instructions for Replit Agent: Fix Missed Obvious Emails
+Problem Statement
+The scraper is still missing plain, visible email addresses that are trivially extractable from contact pages, e.g.:
+dental@levitasdentalclinic.com
+https://levitasdentalclinic.com/contact-us/
+triciaslatercounselling@gmail.com
+https://www.triciaslatercounselling.com/contact-9
+gillhbrennan@gmail.com
+https://www.godalmingcounsellor.com
+natalie@nataliediamond.co.uk
+https://nataliediamond.co.uk/contact/
+contact@drmelanieorchard.co.uk
+https://www.drmelanieorchard.co.uk
+These are not obfuscated, not JS-only, and not hidden behind forms.
+Root Causes to Address
+1. Email extraction stops too early
+_find_email returns on the first acceptable match, which can be:
+A generic email found early
+A guessed email already present on the lead
+Required change
+Continue scanning the page even if a generic or guessed email already exists
+Prefer:
+Emails found on /contact* pages
+Domain-matching emails
+Explicit Gmail/Outlook emails on sole-trader sites
+2. Contact pages are not prioritised enough
+Some of these emails appear only on:
+/contact
+/contact-us
+/contact-9
+Footer blocks loaded after navigation
+Required change
+Always fetch contact pages explicitly, even if:
+A generic email already exists
+The homepage scrape “succeeded”
+Contact URLs to force:
+/contact
+/contact-us
+/contact-me
+/get-in-touch
+/contact-[number]
+3. Gmail / personal emails are being under-accepted
+Examples:
+triciaslatercounselling@gmail.com
+gillhbrennan@gmail.com
+These are valid sole-trader emails and should not be deprioritised.
+Required change
+If:
+Site is a sole trader (1 practitioner)
+Email is visible in HTML
+Then accept Gmail / Outlook / iCloud as real emails, not fallback.
+4. Footer and repeated blocks are not fully scanned
+Some sites surface emails in:
+Footer <p> blocks
+<strong> / <span> combinations
+Repeated layout sections not near nav
+Required change
+After main scrape, explicitly scan:
+<footer>
+Any element with class/id containing:
+footer, contact, details, info
+Apply regex extraction to their full innerText
+5. “Already have email” logic blocks better emails
+If lead.email is set (especially guessed), scraper often skips replacement.
+Required change
+If existing email is:
+email_guessed == true
+OR email_type == guessed
+Then:
+Allow replacement by any email found on website
+Add rule:
+Website-found emails always override guessed emails.
+Acceptance Test (must pass)
+After changes, scraper must successfully extract:
+dental@levitasdentalclinic.com
+triciaslatercounselling@gmail.com
+gillhbrennan@gmail.com
+natalie@nataliediamond.co.uk
+contact@drmelanieorchard.co.uk
+from their respective URLs without OpenAI.
+Final Instruction
+Implement the above, then run a targeted re-scrape only for leads with guessed or missing emails, not a full enrichment pass.
