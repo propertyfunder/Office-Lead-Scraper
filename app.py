@@ -7,6 +7,14 @@ from flask import Flask, render_template, jsonify, request, Response
 app = Flask(__name__)
 app.secret_key = os.environ.get('SESSION_SECRET', 'dev-secret-key')
 
+@app.after_request
+def add_headers(response):
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    response.headers['X-Frame-Options'] = 'ALLOWALL'
+    return response
+
 CSV_FILE = 'leads.csv'
 ENRICHED_CSV = 'unit8_leads_enriched.csv'
 EXCLUDED_CSV = 'unit8_leads_excluded.csv'
