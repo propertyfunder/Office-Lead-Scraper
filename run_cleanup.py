@@ -71,6 +71,7 @@ class CleanupEnricher(LeadEnricher):
         self.openai_api_key = os.environ.get("OPENAI_API_KEY", "")
         self.cost_tracker = OpenAICostTracker()
         self.session = None
+        self.generic_email_prefixes = ['info', 'contact', 'enquiries', 'hello', 'admin', 'reception', 'office', 'mail', 'enquiry', 'general', 'support', 'help', 'sales']
         self._init_session()
         self._init_name_data()
 

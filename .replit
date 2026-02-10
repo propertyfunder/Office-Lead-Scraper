@@ -68,12 +68,12 @@ outputType = "console"
 name = "Lead Cleanup"
 author = "agent"
 
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "python run_cleanup.py --stats"
-
 [workflows.workflow.metadata]
 outputType = "console"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python run_cleanup.py --run"
 
 [[ports]]
 localPort = 5000
