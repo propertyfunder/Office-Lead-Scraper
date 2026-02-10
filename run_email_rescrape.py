@@ -63,10 +63,22 @@ class RescrapeEnricher(LeadEnricher):
         self.session = requests.Session()
         try:
             from fake_useragent import UserAgent
-            self.session.headers['User-Agent'] = UserAgent().random
+            ua = UserAgent().random
         except Exception:
-            self.session.headers['User-Agent'] = (
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
+            ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
+        self.session.headers.update({
+            'User-Agent': ua,
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-GB,en;q=0.5',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'DNT': '1',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'none',
+            'Sec-Fetch-User': '?1',
+        })
 
     def _enrich_from_companies_house(self, lead):
         return {}
@@ -305,6 +317,48 @@ def extract_emails_from_soup(soup):
     return emails
 
 
+def extract_schema_emails(soup):
+    import json
+    emails = set()
+    if not soup:
+        return emails
+    for script in soup.find_all('script', type='application/ld+json'):
+        try:
+            data = json.loads(script.string or '{}')
+            items = data if isinstance(data, list) else [data]
+            for item in items:
+                if isinstance(item, dict):
+                    for key in ['email', 'contactPoint']:
+                        val = item.get(key, '')
+                        if isinstance(val, str) and '@' in val:
+                            cleaned = clean_email(val.replace('mailto:', '').lower())
+                            if cleaned:
+                                emails.add(cleaned)
+                        elif isinstance(val, dict) and '@' in str(val.get('email', '')):
+                            cleaned = clean_email(str(val['email']).lower())
+                            if cleaned:
+                                emails.add(cleaned)
+                        elif isinstance(val, list):
+                            for v in val:
+                                if isinstance(v, dict) and '@' in str(v.get('email', '')):
+                                    cleaned = clean_email(str(v['email']).lower())
+                                    if cleaned:
+                                        emails.add(cleaned)
+                    graph = item.get('@graph', [])
+                    if isinstance(graph, list):
+                        for node in graph:
+                            if isinstance(node, dict):
+                                for key in ['email', 'contactPoint']:
+                                    val = node.get(key, '')
+                                    if isinstance(val, str) and '@' in val:
+                                        cleaned = clean_email(val.replace('mailto:', '').lower())
+                                        if cleaned:
+                                            emails.add(cleaned)
+        except (json.JSONDecodeError, TypeError, AttributeError):
+            pass
+    return emails
+
+
 def extract_footer_emails(soup, site_domain):
     emails = set()
     if not soup:
@@ -360,6 +414,7 @@ def scrape_page_for_emails(session, url, site_domain, timeout=5):
         soup = BeautifulSoup(html, 'lxml')
         emails.update(extract_emails_from_soup(soup))
         emails.update(extract_footer_emails(soup, site_domain))
+        emails.update(extract_schema_emails(soup))
     except Exception:
         pass
     return emails, True
@@ -400,6 +455,7 @@ def scrape_website_for_email(enricher, lead):
             soup = BeautifulSoup(homepage_html, 'lxml')
             all_emails.update(extract_emails_from_soup(soup))
             all_emails.update(extract_footer_emails(soup, site_domain))
+            all_emails.update(extract_schema_emails(soup))
             discovered_links = discover_contact_links(soup, website)
         except Exception:
             pass
