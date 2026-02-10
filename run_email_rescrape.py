@@ -210,10 +210,29 @@ JUNK_EMAIL_LOCALS = {
 
 CONTACT_PATHS = [
     '/contact', '/contact-us', '/contact_us', '/contactus',
+    '/contact-me', '/get-in-touch', '/enquiry', '/enquiries',
     '/about', '/about-us', '/about_us', '/aboutus',
     '/team', '/our-team', '/the-team', '/meet-the-team',
-    '/get-in-touch',
 ]
+
+CONTACT_LINK_KEYWORDS = [
+    'contact', 'get in touch', 'reach us', 'enquir', 'email us',
+    'fees', 'book', 'appointment',
+]
+
+
+def decode_cloudflare_email(encoded_str):
+    try:
+        enc = encoded_str.strip()
+        r = int(enc[:2], 16)
+        decoded = ''
+        for i in range(2, len(enc), 2):
+            decoded += chr(int(enc[i:i+2], 16) ^ r)
+        if '@' in decoded:
+            return decoded.lower().strip()
+    except Exception:
+        pass
+    return None
 
 
 def extract_emails_from_html(html_text, site_domain):
@@ -235,6 +254,73 @@ def extract_emails_from_html(html_text, site_domain):
     return list(emails)
 
 
+def extract_emails_from_soup(soup):
+    emails = set()
+    if not soup:
+        return emails
+    for mailto in soup.select('a[href^="mailto:"]'):
+        href = mailto.get('href', '')
+        email_part = href.replace('mailto:', '').split('?')[0].strip()
+        if email_part and '@' in email_part:
+            cleaned = clean_email(email_part.lower())
+            if cleaned:
+                emails.add(cleaned)
+    for cf_link in soup.select('a[href*="/cdn-cgi/l/email-protection"]'):
+        data = cf_link.get('data-cfemail', '')
+        if data:
+            decoded = decode_cloudflare_email(data)
+            if decoded:
+                emails.add(decoded)
+    for cf_span in soup.select('[data-cfemail]'):
+        data = cf_span.get('data-cfemail', '')
+        if data:
+            decoded = decode_cloudflare_email(data)
+            if decoded:
+                emails.add(decoded)
+    cf_pattern = re.compile(r'/cdn-cgi/l/email-protection#([a-f0-9]+)', re.I)
+    for a_tag in soup.find_all('a', href=True):
+        m = cf_pattern.search(a_tag['href'])
+        if m:
+            decoded = decode_cloudflare_email(m.group(1))
+            if decoded:
+                emails.add(decoded)
+    return emails
+
+
+def extract_footer_emails(soup, site_domain):
+    emails = set()
+    if not soup:
+        return emails
+    footer_selectors = ['footer', '[class*="footer"]', '[id*="footer"]',
+                        '[class*="contact"]', '[id*="contact"]',
+                        '[class*="details"]', '[id*="details"]']
+    for selector in footer_selectors:
+        for el in soup.select(selector):
+            text = el.get_text(' ', strip=True)
+            for match in EMAIL_RE.findall(text):
+                cleaned = clean_email(match.lower().strip())
+                if cleaned and cleaned.split('@')[0] not in JUNK_EMAIL_LOCALS:
+                    emails.add(cleaned)
+            emails.update(extract_emails_from_soup(el))
+    return emails
+
+
+def discover_contact_links(soup, base_url):
+    from urllib.parse import urljoin
+    discovered = []
+    if not soup:
+        return discovered
+    for a_tag in soup.find_all('a', href=True):
+        href = a_tag['href'].lower()
+        text = a_tag.get_text(strip=True).lower()
+        combined = href + ' ' + text
+        if any(kw in combined for kw in CONTACT_LINK_KEYWORDS):
+            full_url = urljoin(base_url, a_tag['href'])
+            if full_url not in discovered:
+                discovered.append(full_url)
+    return discovered[:6]
+
+
 def fetch_page(session, url, timeout=6):
     try:
         resp = session.get(url, timeout=timeout, allow_redirects=True)
@@ -245,14 +331,30 @@ def fetch_page(session, url, timeout=6):
     return None
 
 
+def scrape_page_for_emails(session, url, site_domain, timeout=5):
+    from bs4 import BeautifulSoup
+    html = fetch_page(session, url, timeout=timeout)
+    if not html or len(html) < 200:
+        return set(), False
+    emails = set()
+    emails.update(extract_emails_from_html(html, site_domain))
+    try:
+        soup = BeautifulSoup(html, 'lxml')
+        emails.update(extract_emails_from_soup(soup))
+        emails.update(extract_footer_emails(soup, site_domain))
+    except Exception:
+        pass
+    return emails, True
+
+
 def scrape_website_for_email(enricher, lead):
+    from urllib.parse import urljoin, urlparse
+    from bs4 import BeautifulSoup
+
     notes = []
     if not lead.website or not lead.website.strip():
         notes.append('rescrape_skipped:no_website')
         return None, None, notes
-
-    from urllib.parse import urljoin, urlparse
-    import requests
 
     website = lead.website.strip().rstrip('/')
     site_domain = extract_domain(website)
@@ -263,66 +365,88 @@ def scrape_website_for_email(enricher, lead):
     session = enricher.session
     generic_prefixes = set(enricher.generic_email_prefixes)
 
-    all_emails = []
+    all_emails = set()
+    pages_checked = 0
+    max_pages = 8
+    checked_urls = set()
 
     homepage_html = fetch_page(session, website)
-    if homepage_html:
-        all_emails.extend(extract_emails_from_html(homepage_html, site_domain))
+    pages_checked += 1
+    checked_urls.add(website.lower())
 
-        from bs4 import BeautifulSoup
+    discovered_links = []
+
+    if homepage_html:
+        all_emails.update(extract_emails_from_html(homepage_html, site_domain))
         try:
             soup = BeautifulSoup(homepage_html, 'lxml')
-            for mailto in soup.select('a[href^="mailto:"]'):
-                href = mailto.get('href', '')
-                email_part = href.replace('mailto:', '').split('?')[0].strip()
-                if email_part and '@' in email_part:
-                    cleaned = clean_email(email_part.lower())
-                    if cleaned:
-                        all_emails.append(cleaned)
+            all_emails.update(extract_emails_from_soup(soup))
+            all_emails.update(extract_footer_emails(soup, site_domain))
+            discovered_links = discover_contact_links(soup, website)
         except Exception:
             pass
 
     parsed = urlparse(website)
     base_url = f"{parsed.scheme}://{parsed.netloc}"
 
-    pages_checked = 1
-    max_pages = 4
-
+    priority_urls = []
     for path in CONTACT_PATHS:
+        url = base_url + path
+        if url.lower() not in checked_urls:
+            priority_urls.append(url)
+
+    for link in discovered_links:
+        if link.lower() not in checked_urls and link not in priority_urls:
+            priority_urls.append(link)
+
+    for page_url in priority_urls:
         if pages_checked >= max_pages:
             break
-        page_url = base_url + path
-        html = fetch_page(session, page_url, timeout=5)
-        if html and len(html) > 500:
+        if page_url.lower() in checked_urls:
+            continue
+        checked_urls.add(page_url.lower())
+        page_emails, was_valid = scrape_page_for_emails(session, page_url, site_domain, timeout=5)
+        if was_valid:
             pages_checked += 1
-            page_emails = extract_emails_from_html(html, site_domain)
-            all_emails.extend(page_emails)
-
-            try:
-                soup = BeautifulSoup(html, 'lxml')
-                for mailto in soup.select('a[href^="mailto:"]'):
-                    href = mailto.get('href', '')
-                    email_part = href.replace('mailto:', '').split('?')[0].strip()
-                    if email_part and '@' in email_part:
-                        cleaned = clean_email(email_part.lower())
-                        if cleaned:
-                            all_emails.append(cleaned)
-            except Exception:
-                pass
+            all_emails.update(page_emails)
 
     domain_emails = [e for e in all_emails if domain_matches(e, website)]
 
-    personal = None
-    generic = None
+    personal_candidates = []
+    generic_candidates = []
 
     for email in domain_emails:
         local = email.split('@')[0]
         if local not in generic_prefixes:
-            if not personal:
-                personal = email
+            personal_candidates.append(email)
         else:
-            if not generic:
-                generic = email
+            generic_candidates.append(email)
+
+    personal = None
+    generic = None
+
+    exact_domain = site_domain.lower()
+    exact_personal = [e for e in personal_candidates
+                      if e.split('@')[1].lower() == exact_domain]
+    other_domain_personal = [e for e in personal_candidates
+                             if e.split('@')[1].lower() != exact_domain
+                             and e.split('@')[1].lower() not in FREE_EMAIL_PROVIDERS]
+    free_personal = [e for e in personal_candidates
+                     if e.split('@')[1].lower() in FREE_EMAIL_PROVIDERS]
+
+    if exact_personal:
+        personal = exact_personal[0]
+    elif other_domain_personal:
+        personal = other_domain_personal[0]
+    elif free_personal:
+        personal = free_personal[0]
+
+    exact_generic = [e for e in generic_candidates
+                     if e.split('@')[1].lower() == exact_domain]
+    if exact_generic:
+        generic = exact_generic[0]
+    elif generic_candidates:
+        generic = generic_candidates[0]
 
     notes.append(f'pages_checked:{pages_checked}')
     notes.append(f'emails_found:{len(set(domain_emails))}')
@@ -457,6 +581,13 @@ def main():
             personal, generic, scrape_notes = result_tuple
             existing_notes = lead.refinement_notes or ''
 
+            old_is_guessed = (
+                str(getattr(lead, 'email_guessed', '')).lower() == 'true'
+                or str(getattr(lead, 'email_type', '')).lower() == 'guessed'
+                or has_bad_pattern(old_email)
+                or not old_email or old_email == 'nan'
+            )
+
             if personal and personal != old_email:
                 if lead.email and str(lead.email) != 'nan':
                     existing_guesses = lead.personal_email_guesses or ''
@@ -471,7 +602,7 @@ def main():
                 print(f"    REPLACED (personal): {personal}")
 
             elif generic and generic != old_email:
-                if has_bad_pattern(old_email) or not old_email or old_email == 'nan':
+                if old_is_guessed:
                     if lead.email and str(lead.email) != 'nan' and lead.email != generic:
                         existing_guesses = lead.personal_email_guesses or ''
                         if lead.email not in str(existing_guesses):
@@ -485,11 +616,10 @@ def main():
                     stats['replaced_generic'] += 1
                     print(f"    REPLACED (generic): {generic}")
                 else:
-                    if generic:
-                        lead.generic_email = generic
-                    lead.refinement_notes = f"{existing_notes}; website_email_not_found; email_rescrape_done".strip('; ')
+                    lead.generic_email = generic
+                    lead.refinement_notes = f"{existing_notes}; generic_email_found:{generic}; email_rescrape_done".strip('; ')
                     stats['already_has_better'] += 1
-                    print(f"    KEPT existing (generic found but current not bad)")
+                    print(f"    KEPT existing (generic found: {generic})")
             else:
                 lead.refinement_notes = f"{existing_notes}; website_email_not_found; email_rescrape_done".strip('; ')
                 stats['no_change'] += 1
