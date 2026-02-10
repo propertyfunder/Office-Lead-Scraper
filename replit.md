@@ -63,6 +63,14 @@ The system employs a modular Python architecture for scraping, enrichment, AI sc
     - **CLI:** `run_cleanup.py --stats | --dry-run | --run [--limit N] [--skip-rescrape] [--skip-openai] [--openai-only]`
     - **Success criteria:** ≥90% of contact_name values are real/defensible, zero UI/placeholder names, guessed emails only where no website email exists.
 
+**Final Sanitisation Pipeline (Feb 2026):**
+    - **Purpose:** Last-mile data quality pass to eliminate all remaining garbage names, infer sole trader names from company names, re-validate guessed emails, and AI-confirm borderline names.
+    - **Four-step pipeline:** Step 1: Garbage name filtering (exact matches, gibberish, UI artifacts, verb prefixes, service words, duplicate words, possessive phrases). Step 2: Sole trader inference from company names (handles European names with de/la/von, initials, qualification suffixes like DO/BSc, service suffix stripping). Step 3: Email re-validation via website scraping. Step 4: OpenAI name validation for borderline/low-confidence names.
+    - **Anti-cycle logic:** Names rejected by garbage filter or OpenAI are marked in refinement_notes to prevent re-inference in subsequent runs.
+    - **Checkpoint saves:** CSV saved after each step to prevent data loss on timeout.
+    - **Results:** 927/1272 contacts (72.9%), zero garbage names remaining, 14 sole trader inferences, 19 OpenAI-confirmed names.
+    - **CLI:** `run_final_sanitise.py --stats | --dry-run | --run [--limit N] [--skip-rescrape] [--skip-openai]`
+
 **System Design Choices:**
 - **Modularity:** Clear separation of concerns for maintainability and scalability.
 - **API-First Scraping:** Prioritizes APIs over traditional web scraping to ensure reliability.

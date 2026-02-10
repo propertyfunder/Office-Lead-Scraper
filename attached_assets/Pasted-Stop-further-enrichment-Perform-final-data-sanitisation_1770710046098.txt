@@ -1,0 +1,76 @@
+Stop further enrichment. Perform final data sanitisation to remove fake contacts, resolve sole-trader businesses, and correct guessed emails.
+Priority is accuracy over coverage. Fewer contacts is acceptable.
+Target outcome: ≥90% of remaining contact names are real people.
+1. Final Human Name Filter (Hard Gate)
+Add a final validation step that runs after all enrichment and cleanup.
+Clear contact_name if ANY apply:
+Name contains verbs or UI text (e.g. Join, Book, Discover, Pricing, Treatments, Welcome)
+Name appears only once on the site AND only in nav/footer/CTA sections
+Name has no UK first name match AND >2 words
+Name fails both _is_valid_contact_name AND OpenAI validation
+Log:
+cleanup:final_human_filter
+2. Sole Trader Name Inference (Critical Fix)
+Add explicit logic to infer contacts for sole traders.
+If ALL apply:
+contact_name is empty
+company_name has 2–4 capitalised words
+One word matches a UK first name
+Website uses first-person language (“I”, “my approach”, “I help…”)
+Then:
+Extract person name from company_name
+Set:
+contact_name
+contact_source = sole_trader_inference
+contact_verified = false
+confidence_score = 3
+Log:
+contact_inferred_from_company_name
+Do NOT apply if company indicates multi-practitioner (Clinic, Centre, Group, Practice).
+3. Re-validate Guessed Emails
+Run a targeted email recheck ONLY for:
+email_guessed == true
+website exists
+website_verified == true
+Process:
+Scrape only contact/footer/mailto
+If real email found:
+Replace guessed email
+email_guessed = false
+email_source = website_verified
+If none found:
+Keep guessed email
+Add note: email_guess_retained_no_real_found
+Do NOT:
+Call Companies House
+Generate new guesses
+Use OpenAI for email discovery
+4. OpenAI Name Validation (Validator Only)
+Use OpenAI only to validate existing names, not discover new ones.
+Trigger when:
+contact_name exists
+confidence_score <= 3
+Source is not Companies House
+Outcomes:
+Confirmed → keep + mark verified
+Rejected → clear name
+Uncertain → keep, lower confidence
+Logs:
+openai_name_validation:confirmed
+openai_name_validation:rejected
+5. Acceptance Rules
+It is OK to end with 65–70% coverage
+It is NOT OK to keep:
+UI text
+Service names
+Page sections
+Role-only titles
+Conceptual phrases
+6. Deliverables
+Provide:
+Final metrics (contacts %, verified %, inferred %, missing)
+unit8_leads_enriched.csv
+unit8_leads_missing_name.csv
+Confirmation:
+No UI/garbage names remain
+All guessed emails were re-validated
