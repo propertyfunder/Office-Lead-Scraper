@@ -73,7 +73,7 @@ outputType = "console"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "python run_cleanup.py --run"
+args = "python run_cleanup.py --stats"
 
 [[ports]]
 localPort = 5000
