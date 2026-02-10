@@ -133,10 +133,13 @@ def clean_email(email: str) -> str:
         email = match.group(0)
     else:
         return ""
-    tld_pattern = r'(\.(com|co\.uk|org|org\.uk|net|uk|io|info|biz|me|health|therapy|yoga|clinic|dental|physio|care|education|studio|space|nhs\.net|nhs\.uk|ac\.uk|gov\.uk))'
-    tld_match = re.search(tld_pattern, email, re.I)
-    if tld_match:
-        email = email[:tld_match.end()]
+    if '@' in email:
+        local_part, domain_part = email.split('@', 1)
+        tld_pattern = r'(\.(com|co\.uk|org|org\.uk|net|uk|io|info|biz|me|health|therapy|yoga|clinic|dental|physio|care|education|studio|space|nhs\.net|nhs\.uk|ac\.uk|gov\.uk))'
+        tld_match = re.search(tld_pattern, domain_part, re.I)
+        if tld_match:
+            domain_part = domain_part[:tld_match.end()]
+        email = f"{local_part}@{domain_part}"
     junk = ['sentry', 'wixpress', 'godaddy', 'squarespace', 'wordpress',
             'mailchimp', 'googleapis', 'gstatic', 'cloudflare', 'filler@']
     if any(x in email.lower() for x in junk):

@@ -26,8 +26,8 @@ from src.models import BusinessLead
 
 INPUT_FILE = 'unit8_leads_enriched.csv'
 OUTPUT_FILE = 'unit8_leads_enriched.csv'
-HARD_TIMEOUT_SECONDS = 15
-BATCH_SIZE = 10
+HARD_TIMEOUT_SECONDS = 20
+BATCH_SIZE = 5
 
 BAD_EMAIL_PATTERNS = [
     'account.suspended@',
@@ -95,7 +95,7 @@ def email_is_in_guesses(email, personal_guesses):
     return email_lower in guesses_lower
 
 
-def is_qualifying(lead):
+def is_qualifying(lead, retry_previous=False):
     website = (lead.website or '').strip()
     if not website or website == 'nan':
         return False, 'no_website'
@@ -109,13 +109,31 @@ def is_qualifying(lead):
     personal_guesses = getattr(lead, 'personal_email_guesses', '') or ''
 
     notes = (lead.refinement_notes or '').lower()
-    if any(marker in notes for marker in [
-        'email_replaced_from_website', 'email_rescrape_done',
-        'email_rescrape_no_email', 'email_rescrape_timeout',
-        'email_rescrape_error', 'website_email_not_found',
-        'pages_checked:', 'emails_found:', 'rescrape_skipped'
-    ]):
+
+    previously_done = any(marker in notes for marker in [
+        'email_rescrape_done', 'email_rescrape_no_email',
+        'email_rescrape_timeout', 'email_rescrape_error',
+        'website_email_not_found', 'rescrape_skipped'
+    ])
+
+    already_replaced = 'email_replaced_from_website' in notes
+
+    if already_replaced:
+        return False, 'already_replaced'
+
+    if previously_done and not retry_previous:
         return False, 'already_rescrape_done'
+
+    if previously_done and retry_previous:
+        if 'rescrape_v3' in notes:
+            return False, 'already_rescrape_v3'
+        if not email or email == 'nan' or email.strip() == '':
+            return True, 'retry_no_email'
+        if email_guessed or email_type == 'guessed':
+            return True, 'retry_guessed'
+        if has_bad_pattern(email):
+            return True, 'retry_bad_pattern'
+        return False, 'retry_skip_has_email'
 
     if not email or email == 'nan' or email.strip() == '':
         return True, 'no_email'
@@ -477,10 +495,10 @@ def run_with_timeout(func, args, timeout_sec):
     return container['result'], []
 
 
-def analyse_leads(leads):
+def analyse_leads(leads, retry_previous=False):
     qualifying = []
     for idx, lead in enumerate(leads):
-        qualifies, reason = is_qualifying(lead)
+        qualifies, reason = is_qualifying(lead, retry_previous=retry_previous)
         if qualifies:
             qualifying.append((idx, reason))
     return qualifying
@@ -493,6 +511,8 @@ def main():
     parser.add_argument('--run', action='store_true', help='Execute the rescrape')
     parser.add_argument('--limit', type=int, default=None, help='Limit number of leads to process')
     parser.add_argument('--batch-size', type=int, default=BATCH_SIZE, help='Save every N records')
+    parser.add_argument('--retry-previous', action='store_true',
+                        help='Retry leads that were previously scraped but still have guessed/missing emails')
     args = parser.parse_args()
 
     if not any([args.stats, args.dry_run, args.run]):
@@ -502,7 +522,7 @@ def main():
     leads = load_leads_from_csv(INPUT_FILE)
     print(f"Loaded {len(leads)} leads from {INPUT_FILE}")
 
-    qualifying = analyse_leads(leads)
+    qualifying = analyse_leads(leads, retry_previous=args.retry_previous)
 
     has_email = sum(1 for l in leads if (l.email or '').strip() and str(l.email) != 'nan')
 
@@ -572,10 +592,13 @@ def main():
             scrape_website_for_email, (enricher, lead), HARD_TIMEOUT_SECONDS
         )
 
+        is_retry = reason.startswith('retry_')
+
         if timeout_notes and 'timeout_exceeded' in timeout_notes:
             stats['timeouts'] += 1
             existing_notes = lead.refinement_notes or ''
-            lead.refinement_notes = f"{existing_notes}; email_rescrape_timeout".strip('; ')
+            marker = 'rescrape_v3_timeout' if is_retry else 'email_rescrape_timeout'
+            lead.refinement_notes = f"{existing_notes}; {marker}".strip('; ')
             print(f"    TIMEOUT")
         elif result_tuple is not None:
             personal, generic, scrape_notes = result_tuple
@@ -597,7 +620,8 @@ def main():
                 lead.email = personal
                 lead.email_guessed = "false"
                 lead.email_type = "personal"
-                lead.refinement_notes = f"{existing_notes}; email_replaced_from_website:{old_email}->{personal}".strip('; ')
+                v2_tag = '; rescrape_v3' if is_retry else ''
+                lead.refinement_notes = f"{existing_notes}; email_replaced_from_website:{old_email}->{personal}{v2_tag}".strip('; ')
                 stats['replaced_personal'] += 1
                 print(f"    REPLACED (personal): {personal}")
 
@@ -612,16 +636,19 @@ def main():
                     lead.email_guessed = "false"
                     lead.generic_email = generic
                     lead.email_type = "generic"
-                    lead.refinement_notes = f"{existing_notes}; email_replaced_from_website:{old_email}->{generic}".strip('; ')
+                    v2_tag = '; rescrape_v3' if is_retry else ''
+                    lead.refinement_notes = f"{existing_notes}; email_replaced_from_website:{old_email}->{generic}{v2_tag}".strip('; ')
                     stats['replaced_generic'] += 1
                     print(f"    REPLACED (generic): {generic}")
                 else:
                     lead.generic_email = generic
-                    lead.refinement_notes = f"{existing_notes}; generic_email_found:{generic}; email_rescrape_done".strip('; ')
+                    v2_tag = '; rescrape_v3' if is_retry else ''
+                    lead.refinement_notes = f"{existing_notes}; generic_email_found:{generic}; email_rescrape_done{v2_tag}".strip('; ')
                     stats['already_has_better'] += 1
                     print(f"    KEPT existing (generic found: {generic})")
             else:
-                lead.refinement_notes = f"{existing_notes}; website_email_not_found; email_rescrape_done".strip('; ')
+                v2_tag = '; rescrape_v3' if is_retry else ''
+                lead.refinement_notes = f"{existing_notes}; website_email_not_found; email_rescrape_done{v2_tag}".strip('; ')
                 stats['no_change'] += 1
                 print(f"    NO CHANGE (no email found on website)")
 
@@ -630,7 +657,8 @@ def main():
         else:
             stats['errors'] += 1
             existing_notes = lead.refinement_notes or ''
-            lead.refinement_notes = f"{existing_notes}; email_rescrape_error".strip('; ')
+            v2_tag = '; rescrape_v3' if is_retry else ''
+            lead.refinement_notes = f"{existing_notes}; email_rescrape_error{v2_tag}".strip('; ')
             print(f"    ERROR")
 
         stats['processed'] += 1

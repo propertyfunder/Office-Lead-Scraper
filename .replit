@@ -30,6 +30,10 @@ args = "Surgical Enrichment"
 task = "workflow.run"
 args = "Lead Cleanup"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Email Rescrape"
+
 [[workflows.workflow]]
 name = "Dashboard"
 author = "agent"
@@ -74,6 +78,17 @@ outputType = "console"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "python run_cleanup.py --stats"
+
+[[workflows.workflow]]
+name = "Email Rescrape"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python run_email_rescrape.py --run --retry-previous --batch-size 5"
+
+[workflows.workflow.metadata]
+outputType = "console"
 
 [[ports]]
 localPort = 5000
