@@ -26,7 +26,7 @@ from src.models import BusinessLead
 
 INPUT_FILE = 'unit8_leads_enriched.csv'
 OUTPUT_FILE = 'unit8_leads_enriched.csv'
-HARD_TIMEOUT_SECONDS = 20
+HARD_TIMEOUT_SECONDS = 30
 BATCH_SIZE = 5
 
 BAD_EMAIL_PATTERNS = [
@@ -61,11 +61,7 @@ class RescrapeEnricher(LeadEnricher):
         self.openai_api_key = ""
         import requests
         self.session = requests.Session()
-        try:
-            from fake_useragent import UserAgent
-            ua = UserAgent().random
-        except Exception:
-            ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
+        ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
         self.session.headers.update({
             'User-Agent': ua,
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
@@ -137,8 +133,8 @@ def is_qualifying(lead, retry_previous=False):
         return False, 'already_rescrape_done'
 
     if previously_done and retry_previous:
-        if 'rescrape_v3' in notes:
-            return False, 'already_rescrape_v3'
+        if 'rescrape_v4' in notes:
+            return False, 'already_rescrape_v4'
         if not email or email == 'nan' or email.strip() == '':
             return True, 'retry_no_email'
         if email_guessed or email_type == 'guessed':
@@ -273,7 +269,9 @@ def extract_emails_from_html(html_text, site_domain):
         cleaned = clean_email(match.lower().strip())
         if not cleaned or '@' not in cleaned:
             continue
-        local = cleaned.split('@')[0]
+        local, domain = cleaned.split('@', 1)
+        if len(local) > 64 or len(cleaned) > 254:
+            continue
         if local in JUNK_EMAIL_LOCALS:
             continue
         if cleaned.endswith('.png') or cleaned.endswith('.jpg') or cleaned.endswith('.gif'):
@@ -440,7 +438,7 @@ def scrape_website_for_email(enricher, lead):
 
     all_emails = set()
     pages_checked = 0
-    max_pages = 8
+    max_pages = 5
     checked_urls = set()
 
     homepage_html = fetch_page(session, website)
@@ -460,29 +458,57 @@ def scrape_website_for_email(enricher, lead):
         except Exception:
             pass
 
-    parsed = urlparse(website)
-    base_url = f"{parsed.scheme}://{parsed.netloc}"
+    matched_so_far = [e for e in all_emails if domain_matches(e, website)]
+    has_personal = any(e.split('@')[0] not in generic_prefixes for e in matched_so_far)
 
-    priority_urls = []
-    for path in CONTACT_PATHS:
-        url = base_url + path
-        if url.lower() not in checked_urls:
-            priority_urls.append(url)
+    if not has_personal:
+        parsed = urlparse(website)
+        base_url = f"{parsed.scheme}://{parsed.netloc}"
 
-    for link in discovered_links:
-        if link.lower() not in checked_urls and link not in priority_urls:
-            priority_urls.append(link)
+        contact_urls = []
+        for path in ['/contact', '/contact-us', '/contact_us', '/contactus',
+                      '/contact-me', '/get-in-touch', '/enquiry', '/enquiries']:
+            url = base_url + path
+            if url.lower() not in checked_urls:
+                contact_urls.append(url)
 
-    for page_url in priority_urls:
-        if pages_checked >= max_pages:
-            break
-        if page_url.lower() in checked_urls:
-            continue
-        checked_urls.add(page_url.lower())
-        page_emails, was_valid = scrape_page_for_emails(session, page_url, site_domain, timeout=5)
-        if was_valid:
-            pages_checked += 1
-            all_emails.update(page_emails)
+        for link in discovered_links:
+            if link.lower() not in checked_urls and link not in contact_urls:
+                contact_urls.append(link)
+
+        other_urls = []
+        for path in ['/about', '/about-us', '/about_us', '/aboutus',
+                      '/team', '/our-team', '/the-team', '/meet-the-team']:
+            url = base_url + path
+            if url.lower() not in checked_urls and url not in contact_urls:
+                other_urls.append(url)
+
+        for page_url in contact_urls:
+            if pages_checked >= max_pages:
+                break
+            if page_url.lower() in checked_urls:
+                continue
+            checked_urls.add(page_url.lower())
+            page_emails, was_valid = scrape_page_for_emails(session, page_url, site_domain, timeout=5)
+            if was_valid:
+                pages_checked += 1
+                all_emails.update(page_emails)
+                new_matched = [e for e in page_emails if domain_matches(e, website)]
+                if any(e.split('@')[0] not in generic_prefixes for e in new_matched):
+                    break
+
+        if not any(e.split('@')[0] not in generic_prefixes
+                   for e in all_emails if domain_matches(e, website)):
+            for page_url in other_urls:
+                if pages_checked >= max_pages:
+                    break
+                if page_url.lower() in checked_urls:
+                    continue
+                checked_urls.add(page_url.lower())
+                page_emails, was_valid = scrape_page_for_emails(session, page_url, site_domain, timeout=5)
+                if was_valid:
+                    pages_checked += 1
+                    all_emails.update(page_emails)
 
     domain_emails = [e for e in all_emails if domain_matches(e, website)]
 
@@ -653,7 +679,7 @@ def main():
         if timeout_notes and 'timeout_exceeded' in timeout_notes:
             stats['timeouts'] += 1
             existing_notes = lead.refinement_notes or ''
-            marker = 'rescrape_v3_timeout' if is_retry else 'email_rescrape_timeout'
+            marker = 'rescrape_v4_timeout' if is_retry else 'email_rescrape_timeout'
             lead.refinement_notes = f"{existing_notes}; {marker}".strip('; ')
             print(f"    TIMEOUT")
         elif result_tuple is not None:
@@ -676,7 +702,7 @@ def main():
                 lead.email = personal
                 lead.email_guessed = "false"
                 lead.email_type = "personal"
-                v2_tag = '; rescrape_v3' if is_retry else ''
+                v2_tag = '; rescrape_v4' if is_retry else ''
                 lead.refinement_notes = f"{existing_notes}; email_replaced_from_website:{old_email}->{personal}{v2_tag}".strip('; ')
                 stats['replaced_personal'] += 1
                 print(f"    REPLACED (personal): {personal}")
@@ -692,18 +718,18 @@ def main():
                     lead.email_guessed = "false"
                     lead.generic_email = generic
                     lead.email_type = "generic"
-                    v2_tag = '; rescrape_v3' if is_retry else ''
+                    v2_tag = '; rescrape_v4' if is_retry else ''
                     lead.refinement_notes = f"{existing_notes}; email_replaced_from_website:{old_email}->{generic}{v2_tag}".strip('; ')
                     stats['replaced_generic'] += 1
                     print(f"    REPLACED (generic): {generic}")
                 else:
                     lead.generic_email = generic
-                    v2_tag = '; rescrape_v3' if is_retry else ''
+                    v2_tag = '; rescrape_v4' if is_retry else ''
                     lead.refinement_notes = f"{existing_notes}; generic_email_found:{generic}; email_rescrape_done{v2_tag}".strip('; ')
                     stats['already_has_better'] += 1
                     print(f"    KEPT existing (generic found: {generic})")
             else:
-                v2_tag = '; rescrape_v3' if is_retry else ''
+                v2_tag = '; rescrape_v4' if is_retry else ''
                 lead.refinement_notes = f"{existing_notes}; website_email_not_found; email_rescrape_done{v2_tag}".strip('; ')
                 stats['no_change'] += 1
                 print(f"    NO CHANGE (no email found on website)")
@@ -713,7 +739,7 @@ def main():
         else:
             stats['errors'] += 1
             existing_notes = lead.refinement_notes or ''
-            v2_tag = '; rescrape_v3' if is_retry else ''
+            v2_tag = '; rescrape_v4' if is_retry else ''
             lead.refinement_notes = f"{existing_notes}; email_rescrape_error{v2_tag}".strip('; ')
             print(f"    ERROR")
 

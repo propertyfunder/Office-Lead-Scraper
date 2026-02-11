@@ -83,12 +83,12 @@ args = "python run_cleanup.py --stats"
 name = "Email Rescrape"
 author = "agent"
 
+[workflows.workflow.metadata]
+outputType = "console"
+
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "python run_email_rescrape.py --run --retry-previous --batch-size 5"
-
-[workflows.workflow.metadata]
-outputType = "console"
 
 [[ports]]
 localPort = 5000
