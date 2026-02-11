@@ -34,6 +34,10 @@ args = "Lead Cleanup"
 task = "workflow.run"
 args = "Email Rescrape"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "JS Email Scrape"
+
 [[workflows.workflow]]
 name = "Dashboard"
 author = "agent"
@@ -89,6 +93,17 @@ outputType = "console"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "python run_email_rescrape.py --run --retry-previous --batch-size 5"
+
+[[workflows.workflow]]
+name = "JS Email Scrape"
+author = "agent"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python run_js_scrape.py --run --limit 500"
 
 [[ports]]
 localPort = 5000

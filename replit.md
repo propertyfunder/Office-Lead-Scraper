@@ -1,7 +1,7 @@
 # Business Lead Scraper for Office Leasing
 
 ## Overview
-This project is a Python-based lead generation tool for identifying and collecting potential small business leads for office leasing, primarily in Surrey, UK. It targets professional service companies and, in a specialized "wellness mode," businesses suitable for clinical/therapeutic spaces. The tool automates lead discovery, enrichment, and AI-driven scoring to streamline lead generation for sales and marketing teams. Its core capability lies in providing rich, scored lead data for flexible office spaces.
+This project is a Python-based lead generation tool designed to identify and collect potential small business leads for office leasing, primarily in Surrey, UK. It targets professional service companies and, with a specialized "wellness mode," businesses suitable for clinical/therapeutic spaces. The tool automates lead discovery, enrichment, and AI-driven scoring to provide sales and marketing teams with rich, scored lead data for flexible office spaces, streamlining their lead generation process.
 
 ## User Preferences
 The user wants to interact with the system via a Command Line Interface (CLI) for scraping and a Flask web dashboard for lead visualization and management. The user prefers to specify search parameters such as target towns, sectors, and run modes (e.g., wellness mode) via CLI arguments. Output should be in CSV format. The user requires detailed logging for debugging purposes and the ability to perform dry runs without saving data. The user values detailed explanations of AI scores and reasons.
@@ -10,79 +10,36 @@ The user wants to interact with the system via a Command Line Interface (CLI) fo
 The system employs a modular Python architecture for scraping, enrichment, AI scoring, and a web-based dashboard.
 
 **UI/UX Decisions:**
-- **Web Dashboard:** A Flask application provides a web interface for lead management. It features two tabs for lead categorization (Unit 8 Occupiers and Office Occupiers), filtering options by AI score, company name, sector, or location, and aggregated statistics. Data can be downloaded as CSV, and the dashboard displays review flags and data quality scores.
-- **CLI Interface:** `main.py` serves as the CLI entry point, allowing users to configure scraping parameters, target specific towns or sectors, enable wellness mode, and manage output.
+- **Web Dashboard:** A Flask application provides a web interface for lead management with two tabs for lead categorization (Unit 8 Occupiers and Office Occupiers). It offers filtering by AI score, company name, sector, or location, displays aggregated statistics, and allows data download as CSV, including review flags and data quality scores.
+- **CLI Interface:** `main.py` serves as the CLI entry point, enabling users to configure scraping parameters, target towns or sectors, activate wellness mode, and manage output.
 
 **Technical Implementations & Feature Specifications:**
 - **Scraping:** Primarily uses the Google Places API for business data.
-- **Targeting:** Supports "Professional Services Mode" (default) and "Wellness Mode" for specific geographical areas and business types, excluding retail, logistics, and industrial sectors.
-- **Lead Enrichment:** Gathers comprehensive company and contact information including website, sector, contact names (via a dual-contact model leveraging website scans and Companies House data), email addresses, phone numbers, LinkedIn profiles, addresses, and employee counts. It includes robust retry logic, de-duplication, multi-contact extraction, and multi-format email guessing.
-    - **Refinement Pipeline:** Features a comprehensive pipeline for deduplication, validation, and re-enrichment. It utilizes a flag-based system for `name_review_needed` and `missing_email` rather than immediate exclusion. It supports multi-contact team email guesses, smart name validation, and various email formats. Output is separated into `unit8_leads_enriched.csv` (all usable leads with flags) and `unit8_leads_excluded.csv` (leads with no web presence).
-    - **Enrichment Enhancements:** Includes expanded page targeting for contact discovery, improved email extraction methods (JS script scanning, regex, icon-only mailto parsing), email classification, LinkedIn search strategies, and multi-contact extraction with role-based prioritization. It features name validation for various formats and titles, two-stage enrichment for deeper DOM scanning, responsiveness checks, and preservation of existing high-quality data. It also incorporates suspicious name detection, enrichment attempt tracking, and confidence scoring based on data completeness. New features include contact source tracking, mailshot categorization, contact extraction from company names, vanity name detection, enhanced email guess validation, and separate storage for personal and team email guesses.
-- **AI Lead Scoring:** Integrates with the OpenAI API to assign an AI Score (1-10) and an AI Reason, indicating the lead's suitability.
-- **Data Model:** Uses a `BusinessLead` dataclass (`src/models.py`) to define the structure of lead data, supporting the dual-contact model and enrichment flags.
+- **Targeting:** Supports "Professional Services Mode" (default) and "Wellness Mode," excluding retail, logistics, and industrial sectors.
+- **Lead Enrichment:** Gathers comprehensive company and contact information including website, sector, contact names (via a dual-contact model leveraging website scans and Companies House data), email addresses, phone numbers, LinkedIn profiles, addresses, and employee counts. It incorporates robust retry logic, deduplication, multi-contact extraction, and multi-format email guessing. A refinement pipeline handles deduplication, validation, and re-enrichment, using flags for `name_review_needed` and `missing_email`. It supports multi-contact team email guesses, smart name validation, and various email formats.
+- **Enrichment Enhancements:** Includes URL priority scoring, heading candidate fallback for name extraction, CTA link discovery for contacts, first-name-only extraction as a last resort, UK company number extraction via regex, and comprehensive data integrity logging. It also features heading-driven team detection for flat HTML team pages, allowing for multi-contact extraction and role-based prioritization.
+- **Surgical Enrichment Runner:** Replaced monolithic enrichment with cohort-based processing (e.g., leads missing contact_name, low confidence leads, unverified emails). It uses single-tool run modes (e.g., `contact_recovery`, `false_positive_cleanup`, `email_verification`, `final_confirmation`) with per-lead guardrails (max 3 pages, max 5 HTTP requests, max 1 OpenAI call, 30-second timeout). Progress is saved incrementally, and leads are marked for permanent exclusion after multiple failures.
+- **Quality Cleanup Pipeline:** Performs post-enrichment quality control, identifying and removing/correcting fake contact names and replacing guessed emails. It flags suspect names and bad email patterns, and selectively uses re-scraping and OpenAI for resolution.
+- **Final Sanitisation Pipeline:** Executes a multi-step process for last-mile data quality, including garbage name filtering, sole trader inference from company names, email re-validation via website scraping, and AI-confirmation for borderline names, with anti-cycle logic and checkpoint saves.
+- **JS-Rendered Email Scraping:** Extracts emails from JavaScript-rendered pages using Playwright with headless Chromium, employing methods like DOM text regex, mailto: link parsing, Cloudflare data-cfemail decoding, and schema.org JSON-LD extraction. It includes domain-matching validation for safety and early exit logic.
+- **Email Rescrape Pipeline:** A multi-pass static scraping process with progressive retry markers to find additional emails.
+- **AI Lead Scoring:** Integrates with the OpenAI API to assign an AI Score (1-10) and an AI Reason for lead suitability.
+- **Data Model:** Uses a `BusinessLead` dataclass (`src/models.py`) for lead data structure, supporting the dual-contact model and enrichment flags.
 - **Utility Functions:** Common operations like HTTP requests, CSV handling, and email extraction are managed in `src/utils.py`.
 - **Output Fields:** Generates detailed CSV files with extensive fields covering company details, contact information, AI scores, and various metadata.
 
-**Enricher v2 Enhancements (Feb 2026):**
-    - **URL priority scoring:** Pages scored by intent (about/team/contact=100, unknown=30, our-/the- noisy=20, services/blog=15, privacy/legal=5). Sorted by score before slicing to 8 pages, ensuring highest-value pages always visited first.
-    - **Heading candidate fallback:** When structured contact extraction fails, scans h1-h4 headings for 2-3 word names with role-term proximity boost (founder/director/therapist etc within 200 chars). Validated with _is_valid_contact_name and UK first name whitelist. Falls back after nav pages exhausted.
-    - **CTA link discovery:** When no contact found after nav pages, scans homepage body for about/team/meet CTA links (anchors with relevant text/href patterns). Follows up to 3 CTA links to find contacts/emails. Logged as cta_about_page_followed in refinement_notes.
-    - **First-name-only extraction:** Last-resort fallback for patterns like "Hi, I'm Louise" or "Meet Sarah, our founder". Single first name extracted only when 2+ word name not found. Sets contact_verified="false", logs single_name_only in refinement_notes. Confidence penalty of -0.5 applied. Email guessing skipped for single-word names.
-    - **Company number extraction:** Regex patterns extract UK company numbers (6-8 digits) only when preceded by context keywords ("company number", "registration number", "companies house"). Enables direct CH API lookup by company number (faster/more reliable than name search). Logged as company_number_found:XXXXXXXX and director_from_ch_number:Name.
-    - **Data integrity logging:** All fallback paths logged in refinement_notes without overwriting valid existing data. Principal/contact fields protected from downgrade overwrites. _notes initialized in result dict for consistent tracking.
-    - **Heading-driven team detection (Feb 2026):** New `_detect_heading_team_pattern()` method scans ALL headings (h1-h6, uncapped) on a page. When 3+ headings pass `_looks_like_name` and `_is_valid_contact_name`, the page is treated as a team page. Each heading is paired with next-sibling role text (<150 chars) via role keyword matching. Runs as first pass in `_find_multiple_contacts()` before CSS class matching, so flat HTML team pages (like Medicspot) are detected without requiring team/staff CSS classes. Dr/Prof names get automatic "Doctor" title if no explicit role text found. max_contacts raised from 8 to 20. Contact promotion selects highest-role person when no single owner exists. Diagnostic notes: team_detected_via_headings, contact_from_heading_role_pair, multi_contact_team_page:N. Role priority updated to include doctor/gp/surgeon (tier 3), nurse/midwife/pharmacist (tier 7), with Dr/Prof name prefix as tier 3 fallback.
-
-**Surgical Enrichment Runner (Feb 2026):**
-    - **Cohort-based processing:** Replaced monolithic "enrich everything" with targeted cohorts:
-        - Cohort A: leads missing contact_name (with website, excluding social-only)
-        - Cohort B: leads with contact_name but low confidence_score (<=3)
-        - Cohort C: leads with unverified/guessed emails
-    - **Single-tool run modes:** Each run uses exactly one tool to prevent pipeline fragility:
-        - `contact_recovery`: Website scrape only (max 3 pages per lead)
-        - `false_positive_cleanup`: OpenAI classification only (validates names as real vs false positive)
-        - `email_verification`: Website scrape only (targeted email search)
-        - `final_confirmation`: OpenAI confirmation only (validates contact accuracy)
-    - **SurgicalEnricher subclass:** Extends LeadEnricher with tool isolation via method overrides and API key nulling. Disables Companies House, LinkedIn, and OpenAI selectively per mode.
-    - **Per-lead guardrails:** Max 3 pages, max 5 HTTP requests, max 1 OpenAI call, hard 30-second timeout per lead. Timeout/limit breaches logged in refinement_notes.
-    - **Bulletproof progress saving:** CSV saved after every single lead. Tracks last_enriched_date and enrichment_attempts. On restart, skips leads enriched today unless --force flag used.
-    - **Stop conditions:** After 2 failed attempts with no website/social-only + no company number + no names found, leads are permanently marked `missing_name_final=true`. Not retried in future runs.
-    - **CLI interface:** `run_surgical_enrichment.py --cohort A|B|C --mode <mode> [--limit N] [--force] [--dry-run] [--stats]`
-    - **Performance:** ~12 leads/min (vs ~1/min for monolithic enricher) due to tool isolation and page caps.
-    - **Success criteria:** Target ~85-90% real defensible contacts, ~10-15% explicitly marked unreachable.
-
-**Quality Cleanup Pipeline (Feb 2026):**
-    - **Purpose:** Post-enrichment quality control to remove/correct fake contact names and replace guessed emails with real ones. Accepts that some businesses will never yield a named contact.
-    - **Identification:** Flags suspect names via: UI artifact detection (60+ known patterns), address fragment detection, role-only names, company name echoes (only for non-person names), concatenated text, failed `_is_valid_contact_name`, title-only names (e.g. "Dr Fairclough"), low confidence (<=2), and refinement_notes markers.
-    - **Email flags:** Identifies guessed emails with bad patterns (account.suspended@, shopping.cart@, etc.) and guessed emails where website/generic email exists.
-    - **Re-scrape:** Website-only (no Companies House, no LinkedIn, no OpenAI in first pass). Focuses on contact/team/about pages, footer/header, mailto links, schema.org.
-    - **Contact resolution:** Replaces fake names with real ones found on website, selects most senior contact (role priority: owner > founder > director > doctor > therapist), clears role-only names, preserves multi-contact data.
-    - **Email correction:** Replaces guessed emails with real website emails, preserves old guesses in personal_email_guesses.
-    - **OpenAI fallback:** Only used when a fake name was removed AND no replacement found AND website text exists. Never overrides verified website contacts.
-    - **Outputs:** Cleaned `unit8_leads_enriched.csv` + separate `unit8_leads_missing_name.csv` for manual review. Per-lead refinement_notes logging.
-    - **CLI:** `run_cleanup.py --stats | --dry-run | --run [--limit N] [--skip-rescrape] [--skip-openai] [--openai-only]`
-    - **Success criteria:** ≥90% of contact_name values are real/defensible, zero UI/placeholder names, guessed emails only where no website email exists.
-
-**Final Sanitisation Pipeline (Feb 2026):**
-    - **Purpose:** Last-mile data quality pass to eliminate all remaining garbage names, infer sole trader names from company names, re-validate guessed emails, and AI-confirm borderline names.
-    - **Four-step pipeline:** Step 1: Garbage name filtering (exact matches, gibberish, UI artifacts, verb prefixes, service words, duplicate words, possessive phrases). Step 2: Sole trader inference from company names (handles European names with de/la/von, initials, qualification suffixes like DO/BSc, service suffix stripping). Step 3: Email re-validation via website scraping. Step 4: OpenAI name validation for borderline/low-confidence names.
-    - **Anti-cycle logic:** Names rejected by garbage filter or OpenAI are marked in refinement_notes to prevent re-inference in subsequent runs.
-    - **Checkpoint saves:** CSV saved after each step to prevent data loss on timeout.
-    - **Results:** 927/1272 contacts (72.9%), zero garbage names remaining, 14 sole trader inferences, 19 OpenAI-confirmed names.
-    - **CLI:** `run_final_sanitise.py --stats | --dry-run | --run [--limit N] [--skip-rescrape] [--skip-openai]`
-
 **System Design Choices:**
 - **Modularity:** Clear separation of concerns for maintainability and scalability.
-- **API-First Scraping:** Prioritizes APIs over traditional web scraping to ensure reliability.
-- **Incremental Processing:** Supports incremental CSV saving to prevent data loss during long enrichment processes.
-- **Processing Order:** Defines a specific order for refinement and Companies House enrichment to ensure data integrity.
+- **API-First Scraping:** Prioritizes APIs over traditional web scraping for reliability.
+- **Incremental Processing:** Supports incremental CSV saving to prevent data loss.
 - **Command-Line Flexibility:** Provides extensive CLI arguments for customizable operations.
 - **Surgical over Monolithic:** Enrichment switched from "enrich everything" to cohort-based single-tool runs for reliability and speed.
 
 ## External Dependencies
 - **Google Places API:** Main source for business information.
-- **Companies House API:** Provides official UK company registry data and director names.
+- **Companies House API:** Provides official UK company registry data.
 - **OpenAI API:** Used for AI lead scoring.
+- **Playwright:** Used for JavaScript-rendered email scraping.
 - **Python Libraries:**
     - `requests`
     - `beautifulsoup4`
