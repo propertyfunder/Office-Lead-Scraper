@@ -465,8 +465,16 @@
                     <div class="label">Total Leads</div>
                 </div>
                 <div class="stat-card">
-                    <div class="number">{{ office_stats.with_website }}</div>
-                    <div class="label">With Website</div>
+                    <div class="number" style="color:#059669;">{{ office_stats.geo_local }}</div>
+                    <div class="label">Local</div>
+                </div>
+                <div class="stat-card">
+                    <div class="number" style="color:#92400e;">{{ office_stats.geo_review }}</div>
+                    <div class="label">Review</div>
+                </div>
+                <div class="stat-card">
+                    <div class="number" style="color:#991b1b;">{{ office_stats.geo_exclude }}</div>
+                    <div class="label">Excluded</div>
                 </div>
                 <div class="stat-card">
                     <div class="number">{{ office_stats.with_email }}</div>
@@ -477,8 +485,8 @@
                     <div class="label">Named Contacts</div>
                 </div>
                 <div class="stat-card">
-                    <div class="number">{{ office_stats.ai_enriched }}</div>
-                    <div class="label">AI Enriched</div>
+                    <div class="number">{{ office_stats.with_website }}</div>
+                    <div class="label">With Website</div>
                 </div>
                 <div class="stat-card">
                     <div class="number">{{ office_stats.avg_score }}</div>
@@ -494,6 +502,13 @@
                     <option value="7">7+ Score</option>
                     <option value="5">5+ Score</option>
                 </select>
+                <select id="office-geo">
+                    <option value="local_review">Local + Review</option>
+                    <option value="">All (incl. excluded)</option>
+                    <option value="local">Local only</option>
+                    <option value="review">Review only</option>
+                    <option value="exclude">Excluded only</option>
+                </select>
                 <button class="btn" onclick="filterLeads('office')">Filter</button>
                 <button class="btn btn-secondary" onclick="resetFilter('office')">Reset</button>
                 <button class="btn btn-success" onclick="downloadCSV('office')">Download Office</button>
@@ -507,15 +522,15 @@
                             <th>Business</th>
                             <th>Location</th>
                             <th>Web</th>
-                            <th>Contact / Principal</th>
+                            <th>Contact</th>
                             <th>Emails</th>
-                            <th>Flags</th>
+                            <th>Geo</th>
                             <th>Score</th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for lead in office_leads %}
-                        <tr>
+                        <tr data-geo="{{ lead.geo_relevance or '' }}">
                             <td>
                                 <div class="company-name">{{ lead.company_name }}</div>
                                 <div class="contact-info">{{ lead.sector or '' }}</div>
@@ -526,16 +541,18 @@
                             </td>
                             <td>
                                 {% if lead.contact_name %}<strong>{{ lead.contact_name }}</strong>{% else %}<span style="color:#94a3b8;">No contact</span>{% endif %}
-                                {% if lead.principal_name and lead.principal_name != lead.contact_name %}<br><span class="contact-info">CH: {{ lead.principal_name }}</span>{% endif %}
                             </td>
                             <td class="contact-info">
                                 {% if lead.contact_email or lead.email %}{{ lead.contact_email or lead.email }}<br>{% endif %}
                                 {% if lead.generic_email %}<span style="color:#94a3b8;">{{ lead.generic_email }}</span>{% endif %}
-                                {% if not lead.contact_email and not lead.email and not lead.generic_email %}-{% endif %}
+                                {% if lead.personal_email_guesses %}<br><span style="color:#6366f1;cursor:pointer;" title="{{ lead.personal_email_guesses }}">{{ lead.personal_email_guesses.split('; ')|length }} guesses</span>{% endif %}
+                                {% if not lead.contact_email and not lead.email and not lead.generic_email and not lead.personal_email_guesses %}-{% endif %}
                             </td>
                             <td>
-                                {% if lead.name_review_needed == 'True' %}<span class="flag flag-review">review</span><br>{% endif %}
-                                {% if lead.missing_email == 'True' %}<span class="flag flag-missing">no email</span>{% endif %}
+                                {% if lead.geo_relevance == 'local' %}<span class="flag flag-ok">local</span>
+                                {% elif lead.geo_relevance == 'review' %}<span class="flag flag-review" title="{{ lead.refinement_notes or '' }}">review</span>
+                                {% elif lead.geo_relevance == 'exclude' %}<span class="flag flag-missing" title="{{ lead.refinement_notes or '' }}">exclude</span>
+                                {% else %}<span style="color:#94a3b8;">-</span>{% endif %}
                             </td>
                             <td>
                                 {% if lead.ai_score %}
@@ -568,11 +585,14 @@
         function filterLeads(category) {
             const search = document.getElementById(category + '-search').value;
             const minScore = document.getElementById(category + '-score').value;
+            const geoEl = document.getElementById(category + '-geo');
+            const geo = geoEl ? geoEl.value : '';
             
             const params = new URLSearchParams();
             params.set('category', category);
             if (search) params.set('search', search);
             if (minScore) params.set('min_score', minScore);
+            if (geo) params.set('geo', geo);
             
             fetch('/api/leads?' + params.toString())
                 .then(r => r.json())
@@ -582,6 +602,8 @@
         function resetFilter(category) {
             document.getElementById(category + '-search').value = '';
             document.getElementById(category + '-score').value = '';
+            const geoEl = document.getElementById(category + '-geo');
+            if (geoEl) geoEl.value = 'local_review';
             location.reload();
         }
         
@@ -622,21 +644,29 @@
                 let emailCell = '';
                 if (contactEmail) emailCell += contactEmail + '<br>';
                 if (lead.generic_email) emailCell += `<span style="color:#94a3b8;">${lead.generic_email}</span><br>`;
-                if (lead.personal_email_guesses) emailCell += `<span style="color:#6366f1;" title="${lead.personal_email_guesses}">${lead.personal_email_guesses.split(' | ').length} guesses</span><br>`;
+                if (lead.personal_email_guesses) emailCell += `<span style="color:#6366f1;" title="${lead.personal_email_guesses}">${lead.personal_email_guesses.split(/[;|]/).filter(s => s.trim()).length} guesses</span><br>`;
                 if (lead.principal_email_guess) emailCell += `<span style="color:#059669;">CH: ${lead.principal_email_guess}</span>`;
                 if (!emailCell) emailCell = '-';
 
                 let flagCell = '';
-                if (lead.name_review_needed === 'True') flagCell += '<span class="flag flag-review">review name</span><br>';
-                if (lead.missing_email === 'True') flagCell += '<span class="flag flag-missing">no email</span><br>';
-                if (lead.data_score) flagCell += `<span class="data-score-badge ds-${lead.data_score}">${lead.data_score}</span>`;
-                if (lead.confidence_score) flagCell += ` <span class="confidence-badge conf-${lead.confidence_score}" title="Confidence: ${lead.confidence_score}/5${lead.refinement_notes ? ' | ' + lead.refinement_notes : ''}">C${lead.confidence_score}</span>`;
-                if (lead.email_type && lead.email_type !== 'none') flagCell += ` <span class="email-type-badge" title="Email type: ${lead.email_type}">${lead.email_type.substring(0,3)}</span>`;
-                if (lead.mailshot_category) {
-                    let mcClass = lead.mailshot_category === 'priority' ? 'mc-priority' : lead.mailshot_category === 'fallback' ? 'mc-fallback' : 'mc-dne';
-                    flagCell += ` <span class="mailshot-badge ${mcClass}" title="Mailshot: ${lead.mailshot_category}">${lead.mailshot_category === 'do_not_email' ? 'DNE' : lead.mailshot_category.substring(0,4)}</span>`;
+                if (category === 'office') {
+                    const geo = lead.geo_relevance || '';
+                    if (geo === 'local') flagCell = '<span class="flag flag-ok">local</span>';
+                    else if (geo === 'review') flagCell = `<span class="flag flag-review" title="${lead.refinement_notes || ''}">review</span>`;
+                    else if (geo === 'exclude') flagCell = `<span class="flag flag-missing" title="${lead.refinement_notes || ''}">exclude</span>`;
+                    else flagCell = '<span style="color:#94a3b8;">-</span>';
+                } else {
+                    if (lead.name_review_needed === 'True') flagCell += '<span class="flag flag-review">review name</span><br>';
+                    if (lead.missing_email === 'True') flagCell += '<span class="flag flag-missing">no email</span><br>';
+                    if (lead.data_score) flagCell += `<span class="data-score-badge ds-${lead.data_score}">${lead.data_score}</span>`;
+                    if (lead.confidence_score) flagCell += ` <span class="confidence-badge conf-${lead.confidence_score}" title="Confidence: ${lead.confidence_score}/5${lead.refinement_notes ? ' | ' + lead.refinement_notes : ''}">C${lead.confidence_score}</span>`;
+                    if (lead.email_type && lead.email_type !== 'none') flagCell += ` <span class="email-type-badge" title="Email type: ${lead.email_type}">${lead.email_type.substring(0,3)}</span>`;
+                    if (lead.mailshot_category) {
+                        let mcClass = lead.mailshot_category === 'priority' ? 'mc-priority' : lead.mailshot_category === 'fallback' ? 'mc-fallback' : 'mc-dne';
+                        flagCell += ` <span class="mailshot-badge ${mcClass}" title="Mailshot: ${lead.mailshot_category}">${lead.mailshot_category === 'do_not_email' ? 'DNE' : lead.mailshot_category.substring(0,4)}</span>`;
+                    }
+                    if (lead.contact_source && lead.contact_source !== 'unknown') flagCell += ` <span class="source-badge" title="Contact source: ${lead.contact_source}">${lead.contact_source.substring(0,3)}</span>`;
                 }
-                if (lead.contact_source && lead.contact_source !== 'unknown') flagCell += ` <span class="source-badge" title="Contact source: ${lead.contact_source}">${lead.contact_source.substring(0,3)}</span>`;
 
                 return `<tr>
                     <td><div class="company-name">${lead.company_name}</div><div class="contact-info">${lead.sector || ''}</div></td>

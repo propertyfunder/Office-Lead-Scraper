@@ -95,6 +95,10 @@ def get_stats(leads):
         et = l.get('email_type', 'none') or 'none'
         email_types[et] = email_types.get(et, 0) + 1
 
+    geo_local = sum(1 for l in leads if l.get('geo_relevance') == 'local')
+    geo_review = sum(1 for l in leads if l.get('geo_relevance') == 'review')
+    geo_exclude = sum(1 for l in leads if l.get('geo_relevance') == 'exclude')
+
     return {
         'total': total,
         'with_email': with_email,
@@ -110,7 +114,10 @@ def get_stats(leads):
         'name_review': name_review,
         'missing_email': missing_email_count,
         'avg_confidence': avg_confidence,
-        'email_types': email_types
+        'email_types': email_types,
+        'geo_local': geo_local,
+        'geo_review': geo_review,
+        'geo_exclude': geo_exclude
     }
 
 @app.route('/')
@@ -119,9 +126,11 @@ def index():
     office_leads = load_office_leads()
     all_leads = unit8_leads + office_leads
 
+    office_visible = [l for l in office_leads if l.get('geo_relevance', '') != 'exclude']
+
     return render_template('index.html',
                          unit8_leads=unit8_leads,
-                         office_leads=office_leads,
+                         office_leads=office_visible,
                          unit8_stats=get_stats(unit8_leads),
                          office_stats=get_stats(office_leads),
                          total_stats=get_stats(all_leads),
@@ -140,6 +149,8 @@ def api_leads():
     else:
         leads = load_unit8_leads() + load_office_leads()
 
+    geo = request.args.get('geo', '')
+
     if min_score:
         try:
             min_val = int(min_score)
@@ -150,6 +161,11 @@ def api_leads():
         leads = [l for l in leads if search in l.get('company_name', '').lower()
                  or search in l.get('sector', '').lower()
                  or search in l.get('location', '').lower()]
+    if geo:
+        if geo == 'local_review':
+            leads = [l for l in leads if l.get('geo_relevance', '') != 'exclude']
+        else:
+            leads = [l for l in leads if l.get('geo_relevance', '') == geo]
 
     return jsonify({'leads': leads, 'stats': get_stats(leads)})
 
@@ -191,7 +207,8 @@ def download_csv(category):
         'ai_score', 'ai_reason', 'tag', 'google_rating',
         'category', 'place_id', 'search_town',
         'enrichment_source', 'enrichment_status',
-        'enrichment_attempts', 'refinement_notes'
+        'enrichment_attempts', 'refinement_notes',
+        'geo_relevance'
     ]
     writer = csv.DictWriter(output, fieldnames=fieldnames, extrasaction='ignore')
     writer.writeheader()

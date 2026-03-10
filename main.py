@@ -365,6 +365,21 @@ def run_office_pipeline(args):
                     if director_name_backup and (not lead.contact_name or lead.contact_name == lead.company_name):
                         lead.contact_name = director_name_backup
 
+            if not lead.geo_relevance:
+                from src.geo_classifier import classify_from_website
+                geo, geo_reason = classify_from_website(
+                    website=lead.website,
+                    location=lead.location,
+                    sector=lead.sector,
+                    generic_email=lead.generic_email,
+                    company_name=lead.company_name,
+                )
+                lead.geo_relevance = geo
+                if geo_reason:
+                    existing = lead.refinement_notes or ""
+                    note = f"geo:{geo_reason}"
+                    lead.refinement_notes = f"{existing}; {note}".strip("; ") if existing else note
+
             if ai_score and scorer and scorer.enabled:
                 lead = scorer.score_lead(lead)
         except Exception as e:

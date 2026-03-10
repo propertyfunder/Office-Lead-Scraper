@@ -27,7 +27,8 @@ The system employs a modular Python architecture for scraping, enrichment, AI sc
 - **AI Lead Scoring:** Integrates with the OpenAI API to assign an AI Score (1-10) and an AI Reason for lead suitability.
 - **Data Model:** Uses a `BusinessLead` dataclass (`src/models.py`) for lead data structure, supporting the dual-contact model and enrichment flags.
 - **Utility Functions:** Common operations like HTTP requests, CSV handling, and email extraction are managed in `src/utils.py`.
-- **Output Fields:** Generates detailed CSV files with extensive fields covering company details, contact information, AI scores, and various metadata.
+- **Geo Relevance Classification:** Office leads are classified as `local` (GU postcode/Surrey reference), `review` (national scope, thin content), or `exclude` (immigration, shell company). Classification runs inline during enrichment (reusing homepage fetch) and can be applied retroactively via `run_geo_classify.py`. Dashboard defaults to hiding excluded leads.
+- **Output Fields:** Generates detailed CSV files with extensive fields covering company details, contact information, AI scores, geo relevance, and various metadata.
 
 **System Design Choices:**
 - **Modularity:** Clear separation of concerns for maintainability and scalability.

@@ -946,6 +946,22 @@ class LeadEnricher:
                 if extracted:
                     lead.sector = extracted
 
+            from .geo_classifier import classify_geo_relevance
+            geo, geo_reason = classify_geo_relevance(
+                website=lead.website,
+                location=lead.location,
+                sector=lead.sector,
+                generic_email=lead.generic_email,
+                company_name=lead.company_name,
+                page_text=page_text,
+                soup=soup,
+            )
+            lead.geo_relevance = geo
+            if geo_reason:
+                existing = lead.refinement_notes or ""
+                note = f"geo:{geo_reason}"
+                lead.refinement_notes = f"{existing}; {note}".strip("; ") if existing else note
+
         except Exception as e:
             log_verbose(f"Fast enrich error for {lead.company_name}: {e}")
 

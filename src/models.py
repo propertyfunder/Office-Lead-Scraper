@@ -48,6 +48,7 @@ class BusinessLead:
     mailshot_category: str = ""
     missing_name_final: str = ""
     data_quality: str = ""
+    geo_relevance: str = ""
     
     def to_dict(self) -> dict:
         return asdict(self)
