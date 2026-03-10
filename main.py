@@ -5,6 +5,7 @@ Collects small business leads in Surrey, UK for flexible office space marketing.
 """
 
 import argparse
+import csv
 import os
 import sys
 from datetime import datetime
@@ -253,6 +254,27 @@ def filter_qualified_leads(leads: List[BusinessLead], require_enrichment: bool =
     
     return qualified, filtered_out
 
+def _checkpoint_office_csv(filepath, all_leads):
+    import tempfile
+    from src.utils import get_all_fieldnames
+    tmp_path = filepath + ".tmp"
+    fieldnames = get_all_fieldnames()
+    try:
+        with open(tmp_path, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction='ignore')
+            writer.writeheader()
+            for lead in all_leads:
+                if hasattr(lead, 'to_dict'):
+                    writer.writerow(lead.to_dict())
+                else:
+                    writer.writerow(lead)
+        os.replace(tmp_path, filepath)
+    except Exception as e:
+        print(f"  [Checkpoint] Warning: atomic save failed: {e}")
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+
 def run_office_pipeline(args):
     print("="*60)
     print("OFFICE OCCUPIER PIPELINE (Companies House SIC Discovery)")
@@ -347,8 +369,7 @@ def run_office_pipeline(args):
                 lead = scorer.score_lead(lead)
         except Exception as e:
             failed += 1
-            print(f"  [ERROR] Failed to process {lead.company_name}: {e}")
-            continue
+            print(f"  [ERROR] Failed to enrich {lead.company_name}: {e} — saving raw CH record")
 
         lead.category = "office"
 
@@ -376,6 +397,9 @@ def run_office_pipeline(args):
         if not args.dry_run:
             save_leads_to_csv([lead], output_file)
             saved_count += 1
+            if saved_count % 25 == 0:
+                _checkpoint_office_csv(output_file, existing_leads + all_leads)
+                print(f"  [Checkpoint] {saved_count} leads saved to {output_file}")
 
     print(f"\n{'='*60}")
     print("OFFICE PIPELINE COMPLETE")
@@ -398,6 +422,10 @@ def run_office_pipeline(args):
     if scored:
         avg = sum(int(l.ai_score) for l in scored) / len(scored)
         print(f"Avg AI Score: {avg:.1f} ({len(scored)} scored)")
+
+    if not args.dry_run and all_leads:
+        _checkpoint_office_csv(output_file, existing_leads + all_leads)
+        print(f"\n[Final Save] Atomic checkpoint: {len(existing_leads) + len(all_leads)} total leads in {output_file}")
 
     print(f"\nCH API stats: {ch_scraper.stats}")
     if places.is_available():
