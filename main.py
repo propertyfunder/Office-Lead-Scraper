@@ -12,13 +12,12 @@ from typing import List, Set
 
 from src.models import BusinessLead
 from src.scrapers import GoogleSearchScraper, YellScraper, CompaniesHouseScraper, CompaniesHouseAPIScraper, GooglePlacesScraper
+from src.scrapers.ch_office_scraper import CHOfficeDiscoveryScraper, PlacesCrossReference
 from src.enricher import LeadEnricher, batch_enrich_leads
 from src.ai_scorer import AILeadScorer
 from src.utils import save_leads_to_csv, load_existing_keys, is_target_sector, set_verbose, load_existing_leads_for_dedup, is_duplicate_lead, add_lead_to_existing
+from config import OFFICE_TOWNS, OFFICE_GU_POSTCODES, OFFICE_OUTPUT_FILE, DEFAULT_TOWNS, WELLNESS_TOWNS
 
-DEFAULT_TOWNS = ["Guildford", "Godalming", "Farnham", "Woking"]
-WELLNESS_TOWNS = ["Godalming", "Guildford", "Farnham", "Woking", "Haslemere", 
-                  "Cranleigh", "Milford", "Shalford", "Compton", "Bramley", "Hindhead"]
 DEFAULT_OUTPUT = "leads.csv"
 
 def create_scrapers(town: str, sector: str = "", use_api: bool = True, wellness_mode: bool = False) -> list:
@@ -254,6 +253,140 @@ def filter_qualified_leads(leads: List[BusinessLead], require_enrichment: bool =
     
     return qualified, filtered_out
 
+def run_office_pipeline(args):
+    print("="*60)
+    print("OFFICE OCCUPIER PIPELINE (Companies House SIC Discovery)")
+    print(f"Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print("="*60)
+
+    output_file = args.output if args.output != DEFAULT_OUTPUT else OFFICE_OUTPUT_FILE
+    enrich = not args.no_enrich
+    ai_score = bool(os.environ.get("OPENAI_API_KEY"))
+
+    ch_scraper = CHOfficeDiscoveryScraper()
+    places = PlacesCrossReference()
+    enricher = LeadEnricher() if enrich else None
+    scorer = AILeadScorer(wellness_mode=False) if ai_score else None
+
+    print(f"\nOutput file: {output_file}")
+    print(f"Companies House API: {'Available' if ch_scraper.is_available() else 'NOT AVAILABLE'}")
+    print(f"Google Places API: {'Available' if places.is_available() else 'NOT AVAILABLE'}")
+    print(f"Enrichment: {'Enabled' if enrich else 'Disabled'}")
+    print(f"AI Scoring: {'Enabled' if ai_score and scorer and scorer.enabled else 'Disabled'}")
+    print(f"Postcodes: {', '.join(OFFICE_GU_POSTCODES)}")
+
+    if not ch_scraper.is_available():
+        print("\nERROR: COMPANIES_HOUSE_API_KEY required for office pipeline")
+        return
+
+    if args.fresh and os.path.exists(output_file) and not args.dry_run:
+        os.remove(output_file)
+        print(f"\nRemoved existing file: {output_file}")
+
+    existing_leads = load_leads_from_csv(output_file) if os.path.exists(output_file) else []
+    existing_names = {l.company_name.lower().strip() for l in existing_leads}
+    existing_domains = set()
+    for l in existing_leads:
+        wk = l.get_website_key()
+        if wk:
+            existing_domains.add(wk)
+    print(f"Existing office leads: {len(existing_leads)}")
+
+    all_leads = []
+    saved_count = 0
+
+    def progress(count, name, director):
+        d_str = f" (Dir: {director})" if director else ""
+        print(f"  [{count}] {name}{d_str}")
+
+    print(f"\n{'='*60}")
+    print("Phase 1: Companies House SIC Discovery")
+    print(f"{'='*60}")
+
+    skipped = 0
+    failed = 0
+
+    for lead in ch_scraper.discover(postcodes=OFFICE_GU_POSTCODES, progress_callback=progress):
+        name_key = lead.company_name.lower().strip()
+        if name_key in existing_names:
+            skipped += 1
+            continue
+        existing_names.add(name_key)
+
+        try:
+            if places.is_available():
+                lead = places.lookup(lead)
+
+            wk = lead.get_website_key()
+            if wk and wk in existing_domains:
+                skipped += 1
+                continue
+            if wk:
+                existing_domains.add(wk)
+
+            if enrich and enricher and lead.website:
+                director_name = lead.contact_name
+                lead = enricher.enrich(lead)
+                if director_name and (not lead.contact_name or lead.contact_name == lead.company_name):
+                    lead.contact_name = director_name
+
+            if ai_score and scorer and scorer.enabled:
+                lead = scorer.score_lead(lead)
+        except Exception as e:
+            failed += 1
+            print(f"  [ERROR] Failed to process {lead.company_name}: {e}")
+            continue
+
+        lead.category = "office"
+
+        if lead.email or lead.contact_email or lead.generic_email:
+            if lead.contact_name and lead.contact_name != lead.company_name:
+                lead.enrichment_status = "complete"
+            else:
+                lead.enrichment_status = "missing_name"
+        else:
+            if lead.contact_name and lead.contact_name != lead.company_name:
+                lead.enrichment_status = "missing_email"
+            else:
+                lead.enrichment_status = "incomplete"
+
+        all_leads.append(lead)
+
+        if not args.dry_run:
+            save_leads_to_csv([lead], output_file)
+            saved_count += 1
+
+    print(f"\n{'='*60}")
+    print("OFFICE PIPELINE COMPLETE")
+    print(f"{'='*60}")
+    print(f"Total new leads: {len(all_leads)}")
+    if skipped:
+        print(f"Skipped (duplicates): {skipped}")
+    if failed:
+        print(f"Failed (errors): {failed}")
+    total_with_name = sum(1 for l in all_leads if l.contact_name and l.contact_name != l.company_name)
+    total_with_email = sum(1 for l in all_leads if l.email or l.contact_email or l.generic_email)
+    total_with_website = sum(1 for l in all_leads if l.website)
+    total_complete = sum(1 for l in all_leads if l.enrichment_status == "complete")
+    print(f"With named contact: {total_with_name} ({total_with_name*100//max(len(all_leads),1)}%)")
+    print(f"With email: {total_with_email} ({total_with_email*100//max(len(all_leads),1)}%)")
+    print(f"With website: {total_with_website} ({total_with_website*100//max(len(all_leads),1)}%)")
+    print(f"Complete: {total_complete} ({total_complete*100//max(len(all_leads),1)}%)")
+
+    scored = [l for l in all_leads if l.ai_score]
+    if scored:
+        avg = sum(int(l.ai_score) for l in scored) / len(scored)
+        print(f"Avg AI Score: {avg:.1f} ({len(scored)} scored)")
+
+    print(f"\nCH API stats: {ch_scraper.stats}")
+    if places.is_available():
+        print(f"Places stats: {places.stats}")
+
+    if not args.dry_run:
+        print(f"\nSaved to: {output_file}")
+    print(f"Completed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Scrape small business leads for office leasing in Surrey, UK",
@@ -265,9 +398,17 @@ Examples:
   python main.py --sector "IT companies"  # Focus on IT sector
   python main.py --pages 5 --no-enrich    # More pages, skip enrichment
   python main.py --verbose                # Show debug output
+  python main.py --mode office            # Office pipeline via Companies House
+  python main.py --wellness               # Wellness mode (Unit 8)
         """
     )
     
+    parser.add_argument(
+        '--mode',
+        type=str,
+        choices=['office', 'wellness'],
+        help='Pipeline mode: "office" for CH SIC discovery, "wellness" for Unit 8 clinical leads'
+    )
     parser.add_argument(
         '--town', '-t',
         type=str,
@@ -337,6 +478,17 @@ Examples:
     
     if args.verbose:
         set_verbose(True)
+
+    if args.mode == 'office' or (args.mode == 'wellness'):
+        if args.mode == 'wellness':
+            args.wellness = True
+
+    if args.mode == 'office':
+        run_office_pipeline(args)
+        return
+    
+    if args.wellness or args.mode == 'wellness':
+        args.wellness = True
     
     print("="*60)
     print("Business Lead Scraper for Office Leasing")

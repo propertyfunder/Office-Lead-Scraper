@@ -18,37 +18,34 @@ def add_headers(response):
 CSV_FILE = 'leads.csv'
 ENRICHED_CSV = 'unit8_leads_enriched.csv'
 EXCLUDED_CSV = 'unit8_leads_excluded.csv'
+OFFICE_CSV = 'office_leads.csv'
 OPENAI_COST_FILE = '/tmp/openai_enrichment_cost.json'
 PLACES_API_FILE = '/tmp/places_api_stats.json'
 
-def load_leads():
+def load_unit8_leads():
     leads = []
     if os.path.exists(ENRICHED_CSV):
         try:
             with open(ENRICHED_CSV, 'r', encoding='utf-8') as f:
                 reader = csv.DictReader(f)
                 for row in reader:
-                    if not row.get('category'):
-                        row['category'] = 'unit8'
+                    row['category'] = 'unit8'
                     leads.append(row)
         except Exception as e:
             print(f"Error loading enriched CSV: {e}")
+    return leads
 
-    if os.path.exists(CSV_FILE):
+def load_office_leads():
+    leads = []
+    if os.path.exists(OFFICE_CSV):
         try:
-            with open(CSV_FILE, 'r', encoding='utf-8') as f:
+            with open(OFFICE_CSV, 'r', encoding='utf-8') as f:
                 reader = csv.DictReader(f)
                 for row in reader:
-                    if not row.get('category'):
-                        tag = row.get('tag', '').lower()
-                        if 'wellness' in tag or 'clinic' in tag:
-                            row['category'] = 'unit8'
-                        else:
-                            row['category'] = 'office'
-                    if row.get('category') == 'office':
-                        leads.append(row)
+                    row['category'] = 'office'
+                    leads.append(row)
         except Exception as e:
-            print(f"Error loading CSV: {e}")
+            print(f"Error loading office CSV: {e}")
     return leads
 
 def get_openai_stats():
@@ -66,10 +63,7 @@ def get_openai_stats():
         pass
     return {'date': '', 'cost': 0, 'calls': 0, 'limit': 2.00}
 
-def get_stats(leads, category=None):
-    if category:
-        leads = [l for l in leads if l.get('category') == category]
-
+def get_stats(leads):
     total = len(leads)
     with_email = sum(1 for l in leads if l.get('email') or l.get('contact_email'))
     with_contact = sum(1 for l in leads if l.get('contact_name'))
@@ -121,28 +115,31 @@ def get_stats(leads, category=None):
 
 @app.route('/')
 def index():
-    leads = load_leads()
-    unit8_leads = [l for l in leads if l.get('category') == 'unit8']
-    office_leads = [l for l in leads if l.get('category') == 'office']
+    unit8_leads = load_unit8_leads()
+    office_leads = load_office_leads()
+    all_leads = unit8_leads + office_leads
 
     return render_template('index.html',
                          unit8_leads=unit8_leads,
                          office_leads=office_leads,
-                         unit8_stats=get_stats(leads, 'unit8'),
-                         office_stats=get_stats(leads, 'office'),
-                         total_stats=get_stats(leads),
+                         unit8_stats=get_stats(unit8_leads),
+                         office_stats=get_stats(office_leads),
+                         total_stats=get_stats(all_leads),
                          openai_stats=get_openai_stats())
 
 @app.route('/api/leads')
 def api_leads():
-    leads = load_leads()
-
     category = request.args.get('category')
     min_score = request.args.get('min_score')
     search = request.args.get('search', '').lower()
 
-    if category:
-        leads = [l for l in leads if l.get('category') == category]
+    if category == 'unit8':
+        leads = load_unit8_leads()
+    elif category == 'office':
+        leads = load_office_leads()
+    else:
+        leads = load_unit8_leads() + load_office_leads()
+
     if min_score:
         try:
             min_val = int(min_score)
@@ -158,17 +155,16 @@ def api_leads():
 
 @app.route('/api/download/<category>')
 def download_csv(category):
-    leads = load_leads()
-
     min_score = request.args.get('min_score')
 
     if category == 'unit8':
-        leads = [l for l in leads if l.get('category') == 'unit8']
+        leads = load_unit8_leads()
         filename = 'unit8_leads.csv'
     elif category == 'office':
-        leads = [l for l in leads if l.get('category') == 'office']
+        leads = load_office_leads()
         filename = 'office_leads.csv'
     else:
+        leads = load_unit8_leads() + load_office_leads()
         filename = 'all_leads.csv'
 
     if min_score:
@@ -262,23 +258,24 @@ def refinement_stats():
 
 @app.route('/api/refresh')
 def api_refresh():
-    leads = load_leads()
-    unit8_leads = [l for l in leads if l.get('category') == 'unit8']
-    office_leads = [l for l in leads if l.get('category') == 'office']
+    unit8_leads = load_unit8_leads()
+    office_leads = load_office_leads()
     return jsonify({
         'unit8_leads': unit8_leads,
         'office_leads': office_leads,
-        'unit8_stats': get_stats(leads, 'unit8'),
-        'office_stats': get_stats(leads, 'office')
+        'unit8_stats': get_stats(unit8_leads),
+        'office_stats': get_stats(office_leads)
     })
 
 @app.route('/api/stats')
 def api_stats():
-    leads = load_leads()
+    unit8_leads = load_unit8_leads()
+    office_leads = load_office_leads()
+    all_leads = unit8_leads + office_leads
     return jsonify({
-        'total': get_stats(leads),
-        'unit8': get_stats(leads, 'unit8'),
-        'office': get_stats(leads, 'office'),
+        'total': get_stats(all_leads),
+        'unit8': get_stats(unit8_leads),
+        'office': get_stats(office_leads),
         'openai': get_openai_stats()
     })
 

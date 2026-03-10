@@ -1,0 +1,105 @@
+Perfect — that's a smart architecture. Companies House does the heavy lifting (names, registered addresses, SIC codes for sector filtering), then Places is used purely as a lookup to match websites against those companies rather than as a discovery engine. Much cheaper and arguably better quality data for office occupiers anyway.
+
+Here are the updated final instructions:
+
+---
+
+## Replit Agent Instructions: GBC Office Database Build (Final)
+
+### Context
+Building a separate office occupier database for GBC saved to `office_leads.csv`. The wellness pipeline and `unit8_leads.csv` must not be touched. Companies House is the primary discovery source for office mode; Google Places is used only to cross-reference and retrieve websites — not as a scraping source.
+
+---
+
+### 1. File Separation (Do This First)
+- Confirm `unit8_leads.csv` exists and log the record count before anything runs
+- `--mode office` writes exclusively to `office_leads.csv`
+- `--mode wellness` continues writing to `unit8_leads.csv`
+- Flask UI: Office tab reads `office_leads.csv`, Unit 8 tab reads `unit8_leads.csv`
+- These files never merge
+
+---
+
+### 2. Source Priority for Office Mode
+
+**Step 1 — Companies House API (primary discovery)**
+- Search by SIC code and registered address/postcode for the target geography
+- Extract: company name, company number, registered address, active directors (contact name), incorporation date
+- Filter to active companies only
+- Use SIC codes covering: consulting, technology, software, legal, accounting, recruitment, marketing, engineering, financial services, architecture, planning, HR, PR, environmental, compliance, insurance, corporate finance
+
+**Step 2 — Google Places cross-reference (website lookup only)**
+- For each company returned by Companies House, query Places API with `company name + town`
+- If a match is found with confidence, extract: website URL, phone number, Google rating
+- Do NOT use Places as a discovery source — only to enrich existing Companies House records
+- This keeps Places API calls to a minimum (one lookup per CH record, not one per sector per town)
+
+**Step 3 — Website scraping (enrichment)**
+- Once a website URL is identified, scrape for:
+  - Named contacts (About/Team/Contact pages)
+  - Generic email (`info@`, `hello@`, `contact@` etc.)
+  - Generate `personal_email_guesses` (pipe-separated, all common formats)
+- Companies House director name takes priority over website-scraped names if both found
+
+---
+
+### 3. Geography
+```
+Godalming, Guildford, Farnham, Woking, Haslemere, Cranleigh, Milford, Shalford, Compton, Bramley, Hindhead, Elstead, Witley, Chiddingfold, Dunsfold, Alfold, Busbridge, Hascombe, Shackleford, Puttenham, Thursley, Farncombe, Eashing, Hurtmore, Peperharow, Hambledon
+```
+
+Filter Companies House results to GU postcodes: GU1–GU12, GU27–GU30.
+
+---
+
+### 4. SIC Codes to Target
+```
+70100, 70210, 70220, 70229  — management consultancy
+62011, 62012, 62020, 62090  — software & IT
+69101, 69102, 69109         — legal
+69201, 69202, 69203         — accounting
+78100, 78200, 78300         — recruitment
+73110, 73120, 73200         — marketing & PR
+71121, 71122, 71129         — engineering
+71112, 74909                — environmental & other professional
+64300, 64991, 66190         — financial services
+71111                       — architecture
+68320                       — property management / consultancy
+85590, 85600                — training & coaching
+```
+
+---
+
+### 5. Enrichment & Validation Rules
+- Retain only leads with a valid `contact_name` AND at least one email
+- Director name from Companies House counts as valid `contact_name`
+- Validate scraped names — reject gibberish, placeholders, structural words
+- Set `enrichment_status`: `complete | missing_email | missing_name | incomplete`
+- Set `category = office` on all records
+
+---
+
+### 6. Deduplication
+Skip any record already in `office_leads.csv` matching on:
+- Same company name + town
+- Same Companies House number
+- Same domain/website
+
+---
+
+### 7. Run Command
+```bash
+python main.py --mode office --enrich --score
+```
+Geography and SIC codes should be configured in `config.py` or equivalent — not hardcoded in the CLI call.
+
+---
+
+### 8. Quality Check — Report Back When Done
+- `unit8_leads.csv` record count is **unchanged** (confirm explicitly)
+- Total office leads collected
+- % sourced from Companies House vs Places fallback
+- % with named contact
+- % with email
+- Average AI score
+- Any API errors or rate limit hits
