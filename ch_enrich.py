@@ -5,11 +5,15 @@ import time
 from src.enricher import LeadEnricher
 from src.utils import extract_domain, guess_email, clean_email, normalize_name
 
-INPUT_FILE = "unit8_leads_enriched.csv"
-OUTPUT_FILE = "unit8_leads_enriched.csv"
-BACKUP_FILE = "unit8_leads_enriched_backup.csv"
+INPUT_FILE = "office_leads.csv"
+OUTPUT_FILE = "office_leads.csv"
+BACKUP_FILE = "office_leads_backup.csv"
 
 def main():
+    if not os.path.exists(INPUT_FILE):
+        print(f"ERROR: {INPUT_FILE} not found. Run the office pipeline first.")
+        sys.exit(1)
+
     enricher = LeadEnricher()
     if not enricher.companies_house_api_key:
         print("ERROR: COMPANIES_HOUSE_API_KEY not set")

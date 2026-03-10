@@ -3,6 +3,7 @@ import csv
 import io
 import json
 import subprocess
+import sys
 import threading
 import time
 from flask import Flask, render_template, jsonify, request, Response
@@ -29,18 +30,25 @@ def _run_pipeline(key):
     log_path = f'/tmp/pipeline_{key}.log'
     env = os.environ.copy()
     env['PYTHONUNBUFFERED'] = '1'
-    with open(log_path, 'w') as log_file:
-        proc = subprocess.Popen(
-            cfg['cmd'],
-            stdout=log_file,
-            stderr=subprocess.STDOUT,
-            cwd=os.path.dirname(os.path.abspath(__file__)) or '.',
-            env=env,
-        )
+    proc = subprocess.Popen(
+        cfg['cmd'],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        cwd=os.path.dirname(os.path.abspath(__file__)) or '.',
+        env=env,
+    )
     with _pipeline_lock:
         _pipeline_state[key]['pid'] = proc.pid
         _pipeline_state[key]['proc'] = proc
         _pipeline_state[key]['phase'] = 'running'
+    prefix = f"[{key.upper()}]"
+    with open(log_path, 'w') as log_file:
+        for line in proc.stdout:
+            text = line.decode('utf-8', errors='replace')
+            log_file.write(text)
+            log_file.flush()
+            sys.stdout.write(f"{prefix} {text}")
+            sys.stdout.flush()
     proc.wait()
     with _pipeline_lock:
         if key in _pipeline_state:

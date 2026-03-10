@@ -302,6 +302,9 @@
         .btn-stop:hover { background: #b91c1c; }
         .btn-log { background: #6366f1; font-size: 0.8rem; padding: 6px 12px; }
         .btn-log:hover { background: #4f46e5; }
+        .log-viewer-wrap {
+            position: relative;
+        }
         .log-viewer {
             margin-top: 10px;
             background: #1e293b;
@@ -310,7 +313,7 @@
             padding: 12px;
             font-family: monospace;
             font-size: 0.75rem;
-            max-height: 250px;
+            max-height: 500px;
             overflow-y: auto;
             white-space: pre-wrap;
             word-break: break-all;
@@ -929,7 +932,7 @@
         }
 
         function refreshLog(key) {
-            fetch('/api/pipeline/log/' + key + '?tail=40')
+            fetch('/api/pipeline/log/' + key + '?tail=100')
                 .then(r => r.json())
                 .then(data => {
                     const el = document.getElementById('log-' + key);

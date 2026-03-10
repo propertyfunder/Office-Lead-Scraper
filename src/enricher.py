@@ -2251,6 +2251,7 @@ class LeadEnricher:
         try:
             clean_name = re.sub(r'\s*(ltd|limited|llp|plc|inc)\.?\s*$', '', company_name, flags=re.I)
             
+            rate_limit(0.6, 0.8)
             response = requests.get(
                 f"{self.ch_base_url}/search/companies",
                 params={"q": clean_name, "items_per_page": 5},
@@ -2276,7 +2277,7 @@ class LeadEnricher:
             if not company_number:
                 return ""
             
-            rate_limit(0.3, 0.5)
+            rate_limit(0.6, 0.8)
             
             officers_response = requests.get(
                 f"{self.ch_base_url}/company/{company_number}/officers",
@@ -2303,6 +2304,7 @@ class LeadEnricher:
                         if formatted:
                             return formatted
             
+            rate_limit(0.6, 0.8)
             psc_response = requests.get(
                 f"{self.ch_base_url}/company/{company_number}/persons-with-significant-control",
                 params={"items_per_page": 5},

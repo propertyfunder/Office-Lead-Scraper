@@ -21,6 +21,7 @@ class CHOfficeDiscoveryScraper:
         self.base_url = "https://api.company-information.service.gov.uk"
         self.source_name = "Companies House"
         self.seen_numbers = set()
+        self._last_api_call = 0.0
         self.stats = {
             "api_calls": 0,
             "companies_found": 0,
@@ -36,6 +37,10 @@ class CHOfficeDiscoveryScraper:
         return self.source_name
 
     def _api_get(self, endpoint: str, params: dict = None, _retries: int = 0) -> Optional[dict]:
+        elapsed = time.time() - self._last_api_call
+        if elapsed < 0.6:
+            time.sleep(0.6 - elapsed)
+        self._last_api_call = time.time()
         self.stats["api_calls"] += 1
         try:
             r = requests.get(
