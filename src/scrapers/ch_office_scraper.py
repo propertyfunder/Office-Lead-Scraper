@@ -105,7 +105,7 @@ class CHOfficeDiscoveryScraper:
             if officer.get("resigned_on"):
                 continue
             role = (officer.get("officer_role", "") or "").lower()
-            if role not in ("director", "managing-director", "corporate-director", "secretary"):
+            if role not in ("director", "managing-director"):
                 continue
             name = officer.get("name", "")
             if not name:

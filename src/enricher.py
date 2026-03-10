@@ -882,6 +882,75 @@ class LeadEnricher:
         domain = email.split('@')[-1].lower() if '@' in email else ''
         return domain in personal_domains
     
+    def enrich_office_fast(self, lead: BusinessLead) -> BusinessLead:
+        if not lead.website:
+            return lead
+
+        is_social = any(d in lead.website.lower() for d in self.social_media_domains)
+        if is_social:
+            return lead
+
+        site_domain = extract_domain(lead.website) if lead.website else ""
+
+        try:
+            print(f"    [Fast] Homepage-only scrape: {lead.website[:50]}...")
+            response = make_request(lead.website, timeout=10)
+            if not response or response.status_code >= 400:
+                return lead
+
+            soup = BeautifulSoup(response.text, 'lxml')
+            page_text = soup.get_text(separator=' ')
+
+            found_email = self._find_email(soup, page_text, site_domain)
+            if found_email:
+                if self._is_generic_email(found_email):
+                    if not lead.generic_email:
+                        lead.generic_email = clean_email(found_email)
+                        print(f"    [Fast] Generic email: {lead.generic_email}")
+                elif not self._is_personal_email(found_email):
+                    if not lead.email:
+                        lead.email = clean_email(found_email)
+                        print(f"    [Fast] Email: {lead.email}")
+
+            if not lead.generic_email:
+                for tag in soup.find_all('a', href=True):
+                    href = tag.get('href', '')
+                    if href.startswith('mailto:'):
+                        addr = href.replace('mailto:', '').split('?')[0].strip().lower()
+                        if '@' in addr and self._is_generic_email(addr) and site_domain and site_domain in addr:
+                            lead.generic_email = clean_email(addr)
+                            print(f"    [Fast] Generic email (mailto): {lead.generic_email}")
+                            break
+
+            if lead.contact_name and lead.website:
+                domain = extract_domain(lead.website)
+                if domain and '.' in domain:
+                    guesses = generate_email_guesses(lead.contact_name, domain)
+                    if guesses:
+                        lead.personal_email_guesses = "; ".join(guesses)
+                        if not lead.email:
+                            lead.email = clean_email(guesses[0])
+                            lead.email_guessed = "true"
+                            print(f"    [Fast] Guessed email: {lead.email}")
+
+            if not lead.phone:
+                phone_match = re.search(r'(?:tel|phone|call)[:\s]*([0-9\s\-\+\(\)]{10,18})', page_text, re.I)
+                if phone_match:
+                    lead.phone = phone_match.group(1).strip()
+
+            if not lead.linkedin:
+                lead.linkedin = self._find_linkedin(soup)
+
+            if not lead.sector or lead.sector == "Professional Services":
+                extracted = self._extract_sector(soup, page_text)
+                if extracted:
+                    lead.sector = extracted
+
+        except Exception as e:
+            log_verbose(f"Fast enrich error for {lead.company_name}: {e}")
+
+        return lead
+
     def _enrich_from_website(self, lead: BusinessLead) -> dict:
         result = {
             'email': '',

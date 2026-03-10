@@ -325,10 +325,23 @@ def run_office_pipeline(args):
                 existing_domains.add(wk)
 
             if enrich and enricher and lead.website:
-                director_name = lead.contact_name
-                lead = enricher.enrich(lead)
-                if director_name and (not lead.contact_name or lead.contact_name == lead.company_name):
-                    lead.contact_name = director_name
+                director_name_backup = lead.contact_name
+                has_director = (
+                    bool(director_name_backup and director_name_backup.strip())
+                    and " " in director_name_backup.strip()
+                    and not any(w in director_name_backup.lower() for w in ("ltd", "limited", "llp", "plc", "inc"))
+                    and enricher._is_valid_contact_name(director_name_backup)
+                )
+                if has_director:
+                    lead = enricher.enrich_office_fast(lead)
+                    if not lead.email and not lead.generic_email:
+                        lead = enricher.enrich(lead)
+                        if director_name_backup and (not lead.contact_name or lead.contact_name == lead.company_name):
+                            lead.contact_name = director_name_backup
+                else:
+                    lead = enricher.enrich(lead)
+                    if director_name_backup and (not lead.contact_name or lead.contact_name == lead.company_name):
+                        lead.contact_name = director_name_backup
 
             if ai_score and scorer and scorer.enabled:
                 lead = scorer.score_lead(lead)
@@ -339,16 +352,24 @@ def run_office_pipeline(args):
 
         lead.category = "office"
 
-        if lead.email or lead.contact_email or lead.generic_email:
-            if lead.contact_name and lead.contact_name != lead.company_name:
-                lead.enrichment_status = "complete"
-            else:
-                lead.enrichment_status = "missing_name"
+        has_real_email = (
+            (lead.email and lead.email_guessed != "true")
+            or lead.contact_email
+            or lead.generic_email
+        )
+        has_any_email = bool(lead.email or lead.contact_email or lead.generic_email)
+        has_name = bool(lead.contact_name and lead.contact_name != lead.company_name)
+
+        if has_real_email and has_name:
+            lead.enrichment_status = "complete"
+        elif has_any_email and has_name:
+            lead.enrichment_status = "guessed_email"
+        elif has_any_email and not has_name:
+            lead.enrichment_status = "missing_name"
+        elif has_name and not has_any_email:
+            lead.enrichment_status = "missing_email"
         else:
-            if lead.contact_name and lead.contact_name != lead.company_name:
-                lead.enrichment_status = "missing_email"
-            else:
-                lead.enrichment_status = "incomplete"
+            lead.enrichment_status = "incomplete"
 
         all_leads.append(lead)
 
