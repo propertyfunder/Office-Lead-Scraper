@@ -1,0 +1,65 @@
+Replit Agent — Email Enrichment Pass (Post CH Sweep)
+Once the Companies House postcode sweep completes and office_leads.csv is fully populated, automatically trigger an email enrichment pass. Do not start enrichment until all 16 GU postcodes have been processed.
+
+Phase 2: Website Discovery for Records Missing a Website
+For any record where website is empty:
+
+Query Google Places API with company_name + location
+If a confident match is found, populate website, phone, and google_rating
+Mark enrichment_source = places_lookup
+If no match found, leave website blank and mark missing_email = True
+Rate limit to avoid Places API cost blowout — max 1 request per record, no retries
+
+
+Phase 3: Email Enrichment — Priority Logic
+For every record in office_leads.csv where email, contact_email, and generic_email are all empty, run the following:
+Step 1 — Determine company size signal:
+Check in this order:
+
+Does the website have a navigable team/people/about page with multiple named individuals? → classify as larger
+Is date_of_creation from CH more than 5 years ago (before March 2021) AND no team page found? → classify as established_small
+Everything else → classify as small_new
+
+Store this as size_signal on the record for transparency.
+Step 2 — Apply email strategy by size signal:
+For larger companies:
+
+Scrape team page for named individuals
+Generate personal_email_guesses for the director (CH name takes priority)
+Set email_type = personal_guess
+
+For established_small companies:
+
+Scrape homepage only — look for mailto: links and visible generic email patterns
+If found, set as generic_email and populate email with it
+Set email_type = generic
+Still generate personal_email_guesses from director name + domain as backup
+
+For small_new companies:
+
+Skip website scrape
+Generate personal_email_guesses from CH director name + domain only
+Set best guess as email, mark email_guessed = true
+Set email_type = personal_guess
+
+Step 3 — Fallback for all:
+If after the above email is still empty but contact_name and a domain exist:
+
+Generate full set of personal email guesses
+Populate email with the most likely format (firstname.lastname@domain)
+Mark email_guessed = true
+
+
+Phase 4: Re-run Geo Classification
+After enrichment completes, run run_geo_classify.py --force on any records where geo_relevance is empty or where enrichment has added new website data that wasn't available during the initial sweep.
+
+On Completion — Print Summary:
+CH Sweep: [n] records
+Email enrichment attempted: [n]
+Emails found (real): [n]
+Emails guessed: [n]
+Still missing email: [n]
+Geo classified: [n] local / [n] review / [n] exclude
+office_leads.csv saved.
+
+The goal is a database where every record with a website and a director name has at least a guessed email — and every record without a website has been given a fair chance via Places before being marked as uncontactable.

@@ -49,6 +49,8 @@ class BusinessLead:
     missing_name_final: str = ""
     data_quality: str = ""
     geo_relevance: str = ""
+    date_of_creation: str = ""
+    size_signal: str = ""
     
     def to_dict(self) -> dict:
         return asdict(self)

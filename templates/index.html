@@ -403,6 +403,17 @@
                     </div>
                     <div class="log-viewer" id="log-unit8"></div>
                 </div>
+                <div class="pipeline-card" id="pipeline-office_enrich" style="grid-column: 1 / -1;">
+                    <h4>Office Email Enrichment</h4>
+                    <p style="font-size:0.8rem; color:#94a3b8; margin-bottom:6px;">Post-CH sweep: website discovery, email enrichment, and geo classification for office_leads.csv</p>
+                    <div class="pipeline-status" id="status-office_enrich">Ready</div>
+                    <div class="pipeline-actions">
+                        <button class="btn btn-run" id="btn-run-office_enrich" onclick="startPipeline('office_enrich')">Run Email Enrichment</button>
+                        <button class="btn btn-stop" id="btn-stop-office_enrich" onclick="stopPipeline('office_enrich')" style="display:none;">Stop</button>
+                        <button class="btn btn-log" id="btn-log-office_enrich" onclick="toggleLog('office_enrich')">View Log</button>
+                    </div>
+                    <div class="log-viewer" id="log-office_enrich"></div>
+                </div>
             </div>
         </div>
 
@@ -816,13 +827,15 @@
                         startStatusPolling();
                     } else {
                         alert(data.error || 'Failed to start');
+                        const lbls = {'office': 'Run Office Search', 'unit8': 'Run Wellness Search', 'office_enrich': 'Run Email Enrichment'};
                         btn.disabled = false;
-                        btn.textContent = key === 'office' ? 'Run Office Search' : 'Run Wellness Search';
+                        btn.textContent = lbls[key] || key;
                     }
                 })
                 .catch(() => {
+                    const lbls = {'office': 'Run Office Search', 'unit8': 'Run Wellness Search', 'office_enrich': 'Run Email Enrichment'};
                     btn.disabled = false;
-                    btn.textContent = key === 'office' ? 'Run Office Search' : 'Run Wellness Search';
+                    btn.textContent = lbls[key] || key;
                 });
         }
 
@@ -841,7 +854,8 @@
             const statusEl = document.getElementById('status-' + key);
             const runBtn = document.getElementById('btn-run-' + key);
             const stopBtn = document.getElementById('btn-stop-' + key);
-            const defaultLabel = key === 'office' ? 'Run Office Search' : 'Run Wellness Search';
+            const labels = {'office': 'Run Office Search', 'unit8': 'Run Wellness Search', 'office_enrich': 'Run Email Enrichment'};
+            const defaultLabel = labels[key] || key;
 
             if (status === 'running') {
                 const mins = Math.floor(elapsed / 60);
@@ -882,7 +896,7 @@
                 .then(r => r.json())
                 .then(data => {
                     let anyRunning = false;
-                    for (const key of ['office', 'unit8']) {
+                    for (const key of ['office', 'unit8', 'office_enrich']) {
                         const info = data[key];
                         if (!info) continue;
                         if (info.status === 'running') {

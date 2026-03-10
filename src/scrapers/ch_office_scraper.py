@@ -203,6 +203,7 @@ class CHOfficeDiscoveryScraper:
                         source=self.source_name,
                         category="office",
                         enrichment_source="companies_house",
+                        date_of_creation=date_created,
                     )
                     lead.enrichment_status = "missing_email"
                     if not director_name:

@@ -20,6 +20,10 @@ PIPELINES = {
         'cmd': ['python', 'main.py', '--wellness'],
         'label': 'Unit 8 Wellness Search',
     },
+    'office_enrich': {
+        'cmd': ['python', 'run_office_enrichment.py'],
+        'label': 'Office Email Enrichment',
+    },
 }
 
 _pipeline_state = {}
@@ -257,7 +261,7 @@ def download_csv(category):
         'category', 'place_id', 'search_town',
         'enrichment_source', 'enrichment_status',
         'enrichment_attempts', 'refinement_notes',
-        'geo_relevance'
+        'geo_relevance', 'date_of_creation', 'size_signal'
     ]
     writer = csv.DictWriter(output, fieldnames=fieldnames, extrasaction='ignore')
     writer.writeheader()
