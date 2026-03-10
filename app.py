@@ -2,10 +2,51 @@ import os
 import csv
 import io
 import json
+import subprocess
+import threading
+import time
 from flask import Flask, render_template, jsonify, request, Response
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SESSION_SECRET', 'dev-secret-key')
+
+PIPELINES = {
+    'office': {
+        'cmd': ['python', 'main.py', '--mode', 'office'],
+        'label': 'Office Lead Search',
+    },
+    'unit8': {
+        'cmd': ['python', 'main.py', '--wellness'],
+        'label': 'Unit 8 Wellness Search',
+    },
+}
+
+_pipeline_state = {}
+_pipeline_lock = threading.Lock()
+
+def _run_pipeline(key):
+    cfg = PIPELINES[key]
+    log_path = f'/tmp/pipeline_{key}.log'
+    env = os.environ.copy()
+    env['PYTHONUNBUFFERED'] = '1'
+    with open(log_path, 'w') as log_file:
+        proc = subprocess.Popen(
+            cfg['cmd'],
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+            cwd=os.path.dirname(os.path.abspath(__file__)) or '.',
+            env=env,
+        )
+    with _pipeline_lock:
+        _pipeline_state[key]['pid'] = proc.pid
+        _pipeline_state[key]['proc'] = proc
+        _pipeline_state[key]['phase'] = 'running'
+    proc.wait()
+    with _pipeline_lock:
+        if key in _pipeline_state:
+            _pipeline_state[key]['finished'] = time.time()
+            _pipeline_state[key]['exit_code'] = proc.returncode
+            _pipeline_state[key]['phase'] = 'finished'
 
 @app.after_request
 def add_headers(response):
@@ -295,6 +336,120 @@ def api_stats():
         'office': get_stats(office_leads),
         'openai': get_openai_stats()
     })
+
+@app.route('/api/pipeline/start/<key>', methods=['POST'])
+def start_pipeline(key):
+    if key not in PIPELINES:
+        return jsonify({'error': f'Unknown pipeline: {key}'}), 400
+
+    with _pipeline_lock:
+        state = _pipeline_state.get(key)
+        if state:
+            phase = state.get('phase', '')
+            if phase in ('starting', 'running'):
+                proc = state.get('proc')
+                if phase == 'starting' or (proc and proc.poll() is None):
+                    elapsed = int(time.time() - state.get('started', time.time()))
+                    return jsonify({
+                        'error': f'{PIPELINES[key]["label"]} is already running ({elapsed}s)',
+                        'status': 'running',
+                    }), 409
+        _pipeline_state[key] = {
+            'phase': 'starting',
+            'started': time.time(),
+            'log': f'/tmp/pipeline_{key}.log',
+            'proc': None,
+            'pid': None,
+        }
+
+    t = threading.Thread(target=_run_pipeline, args=(key,), daemon=True)
+    t.start()
+    return jsonify({'ok': True, 'message': f'{PIPELINES[key]["label"]} started'})
+
+@app.route('/api/pipeline/stop/<key>', methods=['POST'])
+def stop_pipeline(key):
+    if key not in PIPELINES:
+        return jsonify({'error': f'Unknown pipeline: {key}'}), 400
+
+    with _pipeline_lock:
+        state = _pipeline_state.get(key)
+        if not state or not state.get('proc') or state['proc'].poll() is not None:
+            return jsonify({'error': 'Pipeline is not running'}), 400
+        proc = state['proc']
+        state['phase'] = 'stopping'
+
+    proc.terminate()
+    try:
+        proc.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait(timeout=5)
+
+    with _pipeline_lock:
+        if key in _pipeline_state:
+            _pipeline_state[key]['finished'] = time.time()
+            _pipeline_state[key]['exit_code'] = proc.returncode
+            _pipeline_state[key]['phase'] = 'stopped'
+
+    return jsonify({'ok': True, 'message': f'{PIPELINES[key]["label"]} stopped'})
+
+@app.route('/api/pipeline/status')
+def pipeline_status():
+    result = {}
+    with _pipeline_lock:
+        for key in PIPELINES:
+            state = _pipeline_state.get(key)
+            if not state:
+                result[key] = {'status': 'idle', 'label': PIPELINES[key]['label']}
+                continue
+            phase = state.get('phase', 'idle')
+            proc = state.get('proc')
+            if phase in ('starting', 'running') and proc and proc.poll() is None:
+                elapsed = int(time.time() - state['started'])
+                result[key] = {
+                    'status': 'running',
+                    'elapsed': elapsed,
+                    'label': PIPELINES[key]['label'],
+                }
+            elif phase == 'starting' and not proc:
+                result[key] = {
+                    'status': 'running',
+                    'elapsed': int(time.time() - state['started']),
+                    'label': PIPELINES[key]['label'],
+                }
+            else:
+                duration = int(state.get('finished', time.time()) - state['started'])
+                exit_code = state.get('exit_code', -1)
+                status = 'stopped' if phase == 'stopped' else ('finished' if exit_code == 0 else 'error')
+                result[key] = {
+                    'status': status,
+                    'exit_code': exit_code,
+                    'duration': duration,
+                    'label': PIPELINES[key]['label'],
+                }
+    return jsonify(result)
+
+@app.route('/api/pipeline/log/<key>')
+def pipeline_log(key):
+    if key not in PIPELINES:
+        return jsonify({'error': 'Unknown pipeline'}), 400
+    log_path = f'/tmp/pipeline_{key}.log'
+    if not os.path.exists(log_path):
+        return jsonify({'log': '', 'lines': 0})
+    tail_lines = min(int(request.args.get('tail', 30)), 200)
+    try:
+        with open(log_path, 'rb') as f:
+            f.seek(0, 2)
+            fsize = f.tell()
+            chunk = min(fsize, tail_lines * 200)
+            f.seek(max(0, fsize - chunk))
+            data = f.read().decode('utf-8', errors='replace')
+        lines = data.splitlines(True)
+        tail = lines[-tail_lines:] if len(lines) > tail_lines else lines
+        total_approx = max(len(lines), fsize // 80)
+        return jsonify({'log': ''.join(tail), 'lines': total_approx})
+    except Exception as e:
+        return jsonify({'log': str(e), 'lines': 0})
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)

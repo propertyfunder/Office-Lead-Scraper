@@ -256,6 +256,67 @@
         
         .empty-state h3 { font-size: 1.2rem; margin-bottom: 8px; }
         
+        .pipeline-panel {
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .pipeline-panel h3 {
+            font-size: 1rem;
+            color: #475569;
+            margin-bottom: 12px;
+        }
+        .pipeline-controls {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+        .pipeline-card {
+            flex: 1;
+            min-width: 280px;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 16px;
+        }
+        .pipeline-card h4 {
+            font-size: 0.95rem;
+            margin-bottom: 8px;
+            color: #1e293b;
+        }
+        .pipeline-status {
+            font-size: 0.8rem;
+            color: #64748b;
+            margin-bottom: 10px;
+            min-height: 20px;
+        }
+        .pipeline-status .running { color: #d97706; font-weight: 600; }
+        .pipeline-status .finished { color: #059669; font-weight: 600; }
+        .pipeline-status .error { color: #dc2626; font-weight: 600; }
+        .pipeline-actions { display: flex; gap: 8px; align-items: center; }
+        .btn-run { background: #059669; }
+        .btn-run:hover { background: #047857; }
+        .btn-run:disabled { background: #9ca3af; cursor: not-allowed; }
+        .btn-stop { background: #dc2626; }
+        .btn-stop:hover { background: #b91c1c; }
+        .btn-log { background: #6366f1; font-size: 0.8rem; padding: 6px 12px; }
+        .btn-log:hover { background: #4f46e5; }
+        .log-viewer {
+            margin-top: 10px;
+            background: #1e293b;
+            color: #e2e8f0;
+            border-radius: 6px;
+            padding: 12px;
+            font-family: monospace;
+            font-size: 0.75rem;
+            max-height: 250px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+            display: none;
+        }
+        
         @media (max-width: 768px) {
             .table-wrapper { overflow-x: auto; }
             table { min-width: 900px; }
@@ -310,6 +371,34 @@
                 <div style="display:flex; gap:10px; flex-wrap:wrap;">
                     <a href="/api/download/enriched" class="btn btn-success" style="text-decoration:none;">Download Enriched</a>
                     <a href="/api/download/excluded" class="btn btn-secondary" style="text-decoration:none;">Download Excluded</a>
+                </div>
+            </div>
+        </div>
+
+        <div class="pipeline-panel">
+            <h3>Search Pipelines</h3>
+            <div class="pipeline-controls">
+                <div class="pipeline-card" id="pipeline-office">
+                    <h4>Office Lead Search</h4>
+                    <p style="font-size:0.8rem; color:#94a3b8; margin-bottom:6px;">Companies House SIC code discovery across GU postcodes</p>
+                    <div class="pipeline-status" id="status-office">Ready</div>
+                    <div class="pipeline-actions">
+                        <button class="btn btn-run" id="btn-run-office" onclick="startPipeline('office')">Run Office Search</button>
+                        <button class="btn btn-stop" id="btn-stop-office" onclick="stopPipeline('office')" style="display:none;">Stop</button>
+                        <button class="btn btn-log" id="btn-log-office" onclick="toggleLog('office')">View Log</button>
+                    </div>
+                    <div class="log-viewer" id="log-office"></div>
+                </div>
+                <div class="pipeline-card" id="pipeline-unit8">
+                    <h4>Unit 8 Wellness Search</h4>
+                    <p style="font-size:0.8rem; color:#94a3b8; margin-bottom:6px;">Google Places API search for wellness and clinical businesses</p>
+                    <div class="pipeline-status" id="status-unit8">Ready</div>
+                    <div class="pipeline-actions">
+                        <button class="btn btn-run" id="btn-run-unit8" onclick="startPipeline('unit8')">Run Wellness Search</button>
+                        <button class="btn btn-stop" id="btn-stop-unit8" onclick="stopPipeline('unit8')" style="display:none;">Stop</button>
+                        <button class="btn btn-log" id="btn-log-unit8" onclick="toggleLog('unit8')">View Log</button>
+                    </div>
+                    <div class="log-viewer" id="log-unit8"></div>
                 </div>
             </div>
         </div>
@@ -707,6 +796,155 @@
                     el.innerHTML += exInfo;
                 }
             });
+
+        let _logIntervals = {};
+        let _statusInterval = null;
+
+        function startPipeline(key) {
+            const btn = document.getElementById('btn-run-' + key);
+            btn.disabled = true;
+            btn.textContent = 'Starting...';
+
+            fetch('/api/pipeline/start/' + key, { method: 'POST' })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.ok) {
+                        updatePipelineUI(key, 'running', 0);
+                        startStatusPolling();
+                    } else {
+                        alert(data.error || 'Failed to start');
+                        btn.disabled = false;
+                        btn.textContent = key === 'office' ? 'Run Office Search' : 'Run Wellness Search';
+                    }
+                })
+                .catch(() => {
+                    btn.disabled = false;
+                    btn.textContent = key === 'office' ? 'Run Office Search' : 'Run Wellness Search';
+                });
+        }
+
+        function stopPipeline(key) {
+            if (!confirm('Stop the running search?')) return;
+            fetch('/api/pipeline/stop/' + key, { method: 'POST' })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.ok) {
+                        updatePipelineUI(key, 'stopped');
+                    }
+                });
+        }
+
+        function updatePipelineUI(key, status, elapsed) {
+            const statusEl = document.getElementById('status-' + key);
+            const runBtn = document.getElementById('btn-run-' + key);
+            const stopBtn = document.getElementById('btn-stop-' + key);
+            const defaultLabel = key === 'office' ? 'Run Office Search' : 'Run Wellness Search';
+
+            if (status === 'running') {
+                const mins = Math.floor(elapsed / 60);
+                const secs = elapsed % 60;
+                const timeStr = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+                statusEl.innerHTML = `<span class="running">Running</span> (${timeStr})`;
+                runBtn.style.display = 'none';
+                stopBtn.style.display = '';
+            } else if (status === 'finished') {
+                statusEl.innerHTML = `<span class="finished">Finished</span>`;
+                runBtn.style.display = '';
+                runBtn.disabled = false;
+                runBtn.textContent = defaultLabel;
+                stopBtn.style.display = 'none';
+            } else if (status === 'stopped') {
+                statusEl.innerHTML = `<span class="error">Stopped</span>`;
+                runBtn.style.display = '';
+                runBtn.disabled = false;
+                runBtn.textContent = defaultLabel;
+                stopBtn.style.display = 'none';
+            } else if (status === 'error') {
+                statusEl.innerHTML = `<span class="error">Error</span>`;
+                runBtn.style.display = '';
+                runBtn.disabled = false;
+                runBtn.textContent = defaultLabel;
+                stopBtn.style.display = 'none';
+            } else {
+                statusEl.textContent = 'Ready';
+                runBtn.style.display = '';
+                runBtn.disabled = false;
+                runBtn.textContent = defaultLabel;
+                stopBtn.style.display = 'none';
+            }
+        }
+
+        function pollStatus() {
+            fetch('/api/pipeline/status')
+                .then(r => r.json())
+                .then(data => {
+                    let anyRunning = false;
+                    for (const key of ['office', 'unit8']) {
+                        const info = data[key];
+                        if (!info) continue;
+                        if (info.status === 'running') {
+                            anyRunning = true;
+                            updatePipelineUI(key, 'running', info.elapsed || 0);
+                            refreshLogIfVisible(key);
+                        } else if (info.status === 'finished') {
+                            updatePipelineUI(key, 'finished');
+                            refreshLogIfVisible(key);
+                        } else if (info.status === 'stopped') {
+                            updatePipelineUI(key, 'stopped');
+                            refreshLogIfVisible(key);
+                        } else if (info.status === 'error') {
+                            updatePipelineUI(key, 'error');
+                            refreshLogIfVisible(key);
+                        }
+                    }
+                    if (!anyRunning && _statusInterval) {
+                        clearInterval(_statusInterval);
+                        _statusInterval = null;
+                    }
+                });
+        }
+
+        function startStatusPolling() {
+            if (!_statusInterval) {
+                _statusInterval = setInterval(pollStatus, 3000);
+                pollStatus();
+            }
+        }
+
+        function toggleLog(key) {
+            const el = document.getElementById('log-' + key);
+            if (el.style.display === 'none' || !el.style.display) {
+                el.style.display = 'block';
+                refreshLog(key);
+            } else {
+                el.style.display = 'none';
+            }
+        }
+
+        function refreshLogIfVisible(key) {
+            const el = document.getElementById('log-' + key);
+            if (el && el.style.display === 'block') {
+                refreshLog(key);
+            }
+        }
+
+        function refreshLog(key) {
+            fetch('/api/pipeline/log/' + key + '?tail=40')
+                .then(r => r.json())
+                .then(data => {
+                    const el = document.getElementById('log-' + key);
+                    if (el) {
+                        el.textContent = data.log || '(no output yet)';
+                        if (data.lines > 0) {
+                            el.textContent += '\n--- ' + data.lines + ' total lines ---';
+                        }
+                        el.scrollTop = el.scrollHeight;
+                    }
+                });
+        }
+
+        pollStatus();
+        startStatusPolling();
     </script>
 </body>
 </html>
