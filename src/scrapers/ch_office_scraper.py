@@ -146,80 +146,83 @@ class CHOfficeDiscoveryScraper:
             return
 
         target_postcodes = postcodes or OFFICE_GU_POSTCODES
-        sic_str = ",".join(OFFICE_SIC_CODES_FLAT)
         total_yielded = 0
 
         for pc in target_postcodes:
-            start_index = 0
-            page_size = 100
+            for sector_name, sector_codes in OFFICE_SIC_CODES.items():
+                sic_str = ",".join(sector_codes)
+                start_index = 0
+                page_size = 100
+                sector_label = sector_name.replace("_", " ").title()
+                print(f"  [CH] {pc} / {sector_label} ({sic_str})")
 
-            while True:
-                data = self._api_get("/advanced-search/companies", {
-                    "sic_codes": sic_str,
-                    "location": pc,
-                    "company_status": "active",
-                    "size": page_size,
-                    "start_index": start_index,
-                })
-                if not data:
-                    break
+                while True:
+                    data = self._api_get("/advanced-search/companies", {
+                        "sic_codes": sic_str,
+                        "location": pc,
+                        "company_status": "active",
+                        "size": page_size,
+                        "start_index": start_index,
+                    })
+                    if not data:
+                        break
 
-                items = data.get("items", [])
-                if not items:
-                    break
+                    items = data.get("items", [])
+                    if not items:
+                        break
 
-                for company in items:
-                    company_number = company.get("company_number", "")
-                    if company_number in self.seen_numbers:
-                        continue
-                    self.seen_numbers.add(company_number)
+                    for company in items:
+                        company_number = company.get("company_number", "")
+                        if company_number in self.seen_numbers:
+                            continue
+                        self.seen_numbers.add(company_number)
 
-                    addr = company.get("registered_office_address", {})
-                    postcode = addr.get("postal_code", "")
-                    if not self._is_gu_postcode(postcode):
-                        continue
+                        addr = company.get("registered_office_address", {})
+                        postcode = addr.get("postal_code", "")
+                        if not self._is_gu_postcode(postcode):
+                            continue
 
-                    company_name = clean_text(company.get("company_name", ""))
-                    if not company_name:
-                        continue
+                        company_name = clean_text(company.get("company_name", ""))
+                        if not company_name:
+                            continue
 
-                    sic_codes = company.get("sic_codes", [])
-                    sector = self._sic_to_sector(sic_codes)
-                    location = self._build_address(addr)
-                    date_created = company.get("date_of_creation", "")
+                        sic_codes = company.get("sic_codes", [])
+                        sector = self._sic_to_sector(sic_codes)
+                        location = self._build_address(addr)
+                        date_created = company.get("date_of_creation", "")
 
-                    directors = self._get_directors(company_number)
-                    self.stats["companies_found"] += 1
-                    director_name = ""
-                    if directors:
-                        director_name = directors[0]["name"]
-                        self.stats["directors_found"] += 1
+                        directors = self._get_directors(company_number)
+                        self.stats["companies_found"] += 1
+                        director_name = ""
+                        if directors:
+                            director_name = directors[0]["name"]
+                            self.stats["directors_found"] += 1
 
-                    lead = BusinessLead(
-                        company_name=company_name,
-                        sector=sector,
-                        location=location,
-                        contact_name=director_name,
-                        source=self.source_name,
-                        category="office",
-                        enrichment_source="companies_house",
-                        date_of_creation=date_created,
-                    )
-                    lead.enrichment_status = "missing_email"
-                    if not director_name:
-                        lead.enrichment_status = "missing_name"
+                        lead = BusinessLead(
+                            company_name=company_name,
+                            sector=sector,
+                            location=location,
+                            contact_name=director_name,
+                            source=self.source_name,
+                            category="office",
+                            enrichment_source="companies_house",
+                            date_of_creation=date_created,
+                        )
+                        lead.enrichment_status = "missing_email"
+                        if not director_name:
+                            lead.enrichment_status = "missing_name"
 
-                    total_yielded += 1
-                    if progress_callback:
-                        progress_callback(total_yielded, company_name, director_name)
+                        total_yielded += 1
+                        if progress_callback:
+                            progress_callback(total_yielded, company_name, director_name)
 
-                    yield lead
-                    rate_limit(0.3, 0.5)
+                        yield lead
+                        rate_limit(0.3, 0.5)
 
-                if len(items) < page_size:
-                    break
-                start_index += page_size
-                rate_limit(0.5, 1.0)
+                    if len(items) < page_size:
+                        break
+                    start_index += page_size
+                    rate_limit(0.5, 1.0)
 
         print(f"  [CH] Discovery complete: {self.stats['companies_found']} companies, "
               f"{self.stats['directors_found']} directors, "

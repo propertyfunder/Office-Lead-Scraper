@@ -108,3 +108,6 @@ args = "python run_js_scrape.py --run --limit 500"
 [[ports]]
 localPort = 5000
 externalPort = 80
+
+[deployment]
+deploymentTarget = "cloudrun"
