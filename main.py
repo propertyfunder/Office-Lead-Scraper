@@ -388,6 +388,15 @@ def run_office_pipeline(args):
 
         lead.category = "office"
 
+        if not lead.email:
+            if lead.personal_email_guesses:
+                first = lead.personal_email_guesses.split(",")[0].strip()
+                if first and "@" in first:
+                    lead.email = first
+                    lead.email_guessed = "true"
+            elif lead.generic_email:
+                lead.email = lead.generic_email.split(",")[0].strip()
+
         has_real_email = (
             (lead.email and lead.email_guessed != "true")
             or lead.contact_email
