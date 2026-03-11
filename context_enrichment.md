@@ -32,9 +32,17 @@ The Places API field mask was updated to include `places.formattedAddress` so th
 
 On a match, `lead.refinement_notes` gets a tag `places_match:tier1`, `places_match:tier2`, or `places_match:tier3` for auditability. The per-run summary prints tier breakdown: `tier1=N  tier2=N  tier3=N  no_match=N`.
 
-**Daily cap**: `PLACES_API_DAILY_LIMIT = 500` (set in `config.py`). The function tracks `places_calls` and breaks when the cap is reached. All leads that would have been processed but weren't are marked `missing_email = "true"`. **Cost: ~£0.019/call** (logged at end of run).
+**Daily cap**: `PLACES_API_DAILY_LIMIT = 500` (set in `config.py`). **Cost: ~£0.019/call** (logged at end of run).
 
-**Skip condition**: A lead is only targeted if `not lead.website or not lead.website.strip()`. Leads with social media URLs (`facebook.com`, `linkedin.com`, etc.) are given `size_signal = "small_new"` in Phase 3 without a Places call, because social URLs are not useful for email scraping.
+**Cross-run call counting (persisted to disk)**: The daily call count is stored in `/tmp/places_daily_count.json` as `{"date": "YYYY-MM-DD", "count": N}`. At Phase 2 start the file is loaded; if the date matches today the stored count is used as the starting total, otherwise it resets to 0. After every individual Places call the count is written back immediately (atomic `.tmp` → `os.replace` pattern). This means the 500-call cap applies across all runs in a calendar day, not just within a single run — the root cause of the previous £111 cost overrun.
+
+**Cap enforcement**: Checked **before every individual API call** against `daily_count` (the persisted total, not just this run's count). If `daily_count >= PLACES_API_DAILY_LIMIT` when Phase 2 starts, the phase is skipped entirely with a clear log message. If the cap is hit mid-loop, the loop breaks and remaining leads are left for tomorrow. The counters `daily_count` and `calls_this_run` are incremented before the HTTP call so failed/exception calls still count toward the cap.
+
+**"Already tried" skip guard**: Targets are filtered to leads where `"places_lookup" not in (lead.enrichment_source or "")` in addition to having no website. Every lead that goes through Phase 2 — whether a match was found or not — has `;places_lookup` appended to `enrichment_source`. This means leads that returned no match, no website, or a Places API error are never re-queried on subsequent runs. Before this fix, no-match leads were silently re-queried on every re-run.
+
+**Per-run console output**: After each call: `Places: {daily}/{cap} calls used today`. At Phase 2 start: `Places API — {n} calls used today ({remaining} remaining of {cap} daily limit). Est. cost so far: £X.XX`. At run end: calls this run, daily total, and estimated cost for both.
+
+**Skip condition**: A lead is only targeted if it has no website AND has never been through Phase 2 (`places_lookup` absent from `enrichment_source`). Leads with social media URLs (`facebook.com`, `linkedin.com`, etc.) are given `size_signal = "small_new"` in Phase 3 without a Places call, because social URLs are not useful for email scraping.
 
 **Checkpoint**: `save_leads(leads, fieldnames)` is called immediately after Phase 2 completes, before Phase 3 begins. Progress is never lost.
 

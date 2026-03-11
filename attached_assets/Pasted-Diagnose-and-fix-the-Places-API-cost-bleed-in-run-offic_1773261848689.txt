@@ -1,0 +1,32 @@
+Diagnose and fix the Places API cost bleed in run_office_enrichment.py
+We've spent ~£111 on Places API calls (approx 5,800 calls at £0.019 each) across multiple enrichment runs. The PLACES_API_DAILY_LIMIT = 500 cap exists in config.py but clearly isn't working as intended. Do not change any matching logic or other pipeline behaviour — this is purely a cost-control fix.
+Step 1 — Audit before touching anything
+Read run_office_enrichment.py in full and answer these questions in your response before writing any code:
+
+Where is places_calls initialised? Is it a local variable inside the Phase 2 function, or does it persist to disk between runs?
+Where is the cap checked? Show the exact condition and what happens when it's hit.
+Is there any mechanism that skips Phase 2 for a lead that already has a website from a previous Places lookup — i.e. could the same no-website leads be getting re-queried on every run?
+Is the places_calls counter incremented before or after a successful API response? Could failed/retried calls be slipping through uncounted?
+Are there any other Places call sites in the file outside the Phase 2 loop?
+
+Step 2 — Fix the cap
+Based on your findings, implement the following:
+
+Persist the daily call count to disk at /tmp/places_daily_count.json with the structure {"date": "YYYY-MM-DD", "count": N}. At the start of Phase 2, load this file. If the date matches today, start from the stored count. If it's a new day, reset to 0. After every Places call, write the updated count back immediately (not just at end of run).
+Hard-check the cap before every individual API call, not just at the start of the loop. If count >= PLACES_API_DAILY_LIMIT, log a clear message — "Places API daily cap reached ({n} calls). Skipping remaining {m} leads for Phase 2." — and break out of the loop cleanly.
+Skip leads that already have a website from a previous run. The current condition should already do this (if not lead.website or not lead.website.strip()) but confirm it's actually being evaluated before any API call is made, not after.
+Skip leads where enrichment_source already contains "places_lookup" — these got their website in a prior run and must not be re-queried.
+Log the daily running total to stdout after each Places call in the format: Places: {n}/{cap} calls used today.
+
+Step 3 — Add a pre-run cost warning
+At the start of Phase 2, before any calls are made, print:
+Places API — {n} calls used today ({remaining} remaining of {cap} daily limit). Est. cost so far: £{cost:.2f}
+If the cap is already exhausted before Phase 2 starts, print a warning and skip Phase 2 entirely rather than silently doing nothing.
+Step 4 — Confirm and report
+After making changes, print the current state of /tmp/places_daily_count.json if it exists, and confirm how many leads in office_leads.csv currently have no website and would be targeted by Phase 2 on the next run. Do not actually run Phase 2.
+Constraints:
+
+Do not change PLACES_API_DAILY_LIMIT value or move it out of config.py
+Do not change Phase 3 or Phase 4
+Do not change the matching logic in _find_best_place()
+Atomic save pattern (.tmp → os.replace) must be preserved for the leads CSV

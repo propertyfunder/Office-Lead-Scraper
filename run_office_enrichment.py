@@ -16,8 +16,36 @@ from src.utils import (
 INPUT_FILE = "office_leads.csv"
 OUTPUT_FILE = "office_leads.csv"
 PLACES_API_KEY = os.environ.get("GOOGLE_MAPS_API_KEY", "")
+PLACES_DAILY_COUNT_FILE = "/tmp/places_daily_count.json"
 
 from config import PLACES_API_DAILY_LIMIT
+import json as _json
+
+
+def _load_places_daily_count():
+    """Load today's Places call count from disk. Returns int."""
+    today = datetime.now().strftime("%Y-%m-%d")
+    try:
+        if os.path.exists(PLACES_DAILY_COUNT_FILE):
+            with open(PLACES_DAILY_COUNT_FILE, "r") as f:
+                data = _json.load(f)
+            if data.get("date") == today:
+                return int(data.get("count", 0))
+    except Exception:
+        pass
+    return 0
+
+
+def _save_places_daily_count(count):
+    """Persist today's Places call count to disk immediately."""
+    today = datetime.now().strftime("%Y-%m-%d")
+    tmp = PLACES_DAILY_COUNT_FILE + ".tmp"
+    try:
+        with open(tmp, "w") as f:
+            _json.dump({"date": today, "count": count}, f)
+        os.replace(tmp, PLACES_DAILY_COUNT_FILE)
+    except Exception as e:
+        print(f"  [WARN] Could not save Places daily count: {e}")
 
 TEAM_PAGE_PATTERNS = [
     "/team", "/about-us", "/about", "/our-team", "/people",
@@ -67,41 +95,64 @@ def has_any_email(lead):
 
 def phase2_website_discovery(leads):
     import requests as req
+
+    print(f"\n{'='*60}")
+    print("PHASE 2: Website Discovery (Google Places)")
+    print(f"{'='*60}")
+
     if not PLACES_API_KEY:
         print("  SKIP: GOOGLE_MAPS_API_KEY not set — cannot do Places lookup")
         return 0, 0
 
-    targets = [l for l in leads if not l.website or not l.website.strip()]
-    print(f"\n{'='*60}")
-    print("PHASE 2: Website Discovery (Google Places)")
-    print(f"{'='*60}")
-    print(f"  Records missing website: {len(targets)}")
+    # Load persisted daily count — cap applies across all runs today
+    daily_count = _load_places_daily_count()
+    remaining_today = max(0, PLACES_API_DAILY_LIMIT - daily_count)
+    cost_so_far = daily_count * 0.019
+    print(f"  Places API — {daily_count} calls used today ({remaining_today} remaining of {PLACES_API_DAILY_LIMIT} daily limit). Est. cost so far: \u00a3{cost_so_far:.2f}")
+
+    if daily_count >= PLACES_API_DAILY_LIMIT:
+        print(f"  [CAP] Daily Places cap already reached ({daily_count}/{PLACES_API_DAILY_LIMIT}). Skipping Phase 2 entirely.")
+        return 0, 0
+
+    # Targets: no website AND not already tried via Places in a prior run
+    targets = [
+        l for l in leads
+        if (not l.website or not l.website.strip())
+        and "places_lookup" not in (l.enrichment_source or "")
+    ]
+    print(f"  Records missing website (never tried Places): {len(targets)}")
     print(f"  Daily Places limit: {PLACES_API_DAILY_LIMIT}")
 
     found = 0
-    places_calls = 0
+    calls_this_run = 0
     tier_counts = {1: 0, 2: 0, 3: 0}
+
     for i, lead in enumerate(targets, 1):
-        if not lead.website or not lead.website.strip():
-            pass
-        else:
+        # Belt-and-suspenders: skip if website appeared since targets was built
+        if lead.website and lead.website.strip():
+            continue
+        if "places_lookup" in (lead.enrichment_source or ""):
             continue
 
-        if places_calls >= PLACES_API_DAILY_LIMIT:
+        # Hard cap check before every call — enforced against the persisted daily total
+        if daily_count >= PLACES_API_DAILY_LIMIT:
             remaining = len(targets) - i + 1
-            print(f"  [CAP] Reached {PLACES_API_DAILY_LIMIT} Places calls — skipping {remaining} remaining")
-            for skip_lead in targets[i-1:]:
-                skip_lead.missing_email = "true"
+            print(f"  [CAP] Places API daily cap reached ({daily_count} calls). Skipping remaining {remaining} leads for Phase 2.")
             break
 
-        query = f"{lead.company_name}"
+        query = lead.company_name
         if lead.location:
             loc_part = lead.location.split(',')[0].strip()
             query += f" {loc_part}"
 
         try:
             rate_limit(0.3, 0.5)
-            places_calls += 1
+
+            # Increment both counters BEFORE the call so any exception still counts
+            daily_count += 1
+            calls_this_run += 1
+            _save_places_daily_count(daily_count)
+
             r = req.post(
                 "https://places.googleapis.com/v1/places:searchText",
                 headers={
@@ -111,8 +162,14 @@ def phase2_website_discovery(leads):
                 json={"textQuery": query, "maxResultCount": 3},
                 timeout=15,
             )
+
+            print(f"  Places: {daily_count}/{PLACES_API_DAILY_LIMIT} calls used today")
+
             if r.status_code != 200:
                 print(f"  [{i}/{len(targets)}] {lead.company_name} -> Places API error {r.status_code}")
+                # Mark so we don't retry this lead on the next run
+                lead.enrichment_source = (lead.enrichment_source or "") + ";places_lookup"
+                lead.missing_email = "true"
                 continue
 
             data = r.json()
@@ -147,9 +204,12 @@ def phase2_website_discovery(leads):
                         lead.google_rating = rating_str
                 else:
                     print(f"  [{i}/{len(targets)}] {lead.company_name} -> matched [tier{tier}] but no website")
+                    lead.enrichment_source = (lead.enrichment_source or "") + ";places_lookup"
                     lead.missing_email = "true"
             else:
                 print(f"  [{i}/{len(targets)}] {lead.company_name} -> no match")
+                # Mark as tried so this lead is skipped on re-runs
+                lead.enrichment_source = (lead.enrichment_source or "") + ";places_lookup"
                 lead.missing_email = "true"
 
         except Exception as e:
@@ -158,9 +218,11 @@ def phase2_website_discovery(leads):
     no_match = len(targets) - sum(tier_counts.values())
     print(f"  Website discovery: found {found} out of {len(targets)}")
     print(f"  Match breakdown:  tier1={tier_counts[1]}  tier2={tier_counts[2]}  tier3={tier_counts[3]}  no_match={no_match}")
-    print(f"  Places API calls this run: {places_calls}")
-    print(f"  Estimated cost: \u00a3{places_calls * 0.019:.2f} (@ \u00a30.019/call)")
-    return found, places_calls
+    print(f"  Places API calls this run: {calls_this_run}")
+    print(f"  Daily total so far: {daily_count}/{PLACES_API_DAILY_LIMIT}")
+    print(f"  Estimated cost this run: \u00a3{calls_this_run * 0.019:.2f} (@ \u00a30.019/call)")
+    print(f"  Estimated daily cost:    \u00a3{daily_count * 0.019:.2f}")
+    return found, calls_this_run
 
 
 _PLACES_STOP_WORDS = {"ltd", "limited", "plc", "llp", "uk", "the", "and", "co", "group"}
