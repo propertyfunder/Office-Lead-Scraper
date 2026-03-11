@@ -38,6 +38,17 @@ The system employs a modular Python architecture for scraping, enrichment, AI sc
 - **Command-Line Flexibility:** Provides extensive CLI arguments for customizable operations.
 - **Surgical over Monolithic:** Enrichment switched from "enrich everything" to cohort-based single-tool runs for reliability and speed.
 
+## Agent Working Rules
+
+- **Context file maintenance:** Whenever a significant change is made to any module, the relevant `context_*.md` file in the project root must be updated before the task is considered complete. A change is significant if it: adds a new function or class, changes core logic (enrichment strategy, rate limiting, deduplication, field promotion, etc.), introduces new fields on `BusinessLead`, or adds/changes config values in `config.py`.
+
+  | Module changed | Context file to update |
+  |---|---|
+  | `src/scrapers/ch_office_scraper.py`, `main.py` `run_office_pipeline()` | `context_ch_scraper.md` |
+  | `run_office_enrichment.py`, `run_surgical_enrichment.py` | `context_enrichment.md` |
+  | `app.py`, `templates/index.html`, `worker.py`, `deploy.sh` | `context_flask_ui.md` |
+  | `src/models.py` | `context_models.md` |
+
 ## External Dependencies
 - **Google Places API:** Main source for business information.
 - **Companies House API:** Provides official UK company registry data.
