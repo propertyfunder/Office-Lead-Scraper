@@ -336,8 +336,9 @@ def run_office_pipeline(args):
         existing_names.add(name_key)
 
         try:
-            if places.is_available():
-                lead = places.lookup(lead)
+            # Places lookup deferred to enrichment pass — too costly during sweep
+            # if places.is_available():
+            #     lead = places.lookup(lead)
 
             wk = lead.get_website_key()
             if wk and wk in existing_domains:
@@ -452,8 +453,9 @@ def run_office_pipeline(args):
         print(f"\n[Final Save] Atomic checkpoint: {len(existing_leads) + len(all_leads)} total leads in {output_file}")
 
     print(f"\nCH API stats: {ch_scraper.stats}")
-    if places.is_available():
-        print(f"Places stats: {places.stats}")
+    places_calls = places.stats.get("lookups", 0) if places.is_available() else 0
+    print(f"Places API calls this run: {places_calls}")
+    print(f"Estimated cost: \u00a3{places_calls * 0.019:.2f} (@ \u00a30.019/call)")
 
     if not args.dry_run:
         print(f"\nSaved to: {output_file}")

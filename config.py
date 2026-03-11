@@ -46,3 +46,5 @@ for sector, codes in OFFICE_SIC_CODES.items():
     label = sector.replace("_", " ").title()
     for code in codes:
         SIC_CODE_TO_SECTOR[code] = label
+
+PLACES_API_DAILY_LIMIT = 500

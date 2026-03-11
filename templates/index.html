@@ -330,7 +330,7 @@
     <header>
         <div class="container">
             <h1>Business Leads Dashboard</h1>
-            <p>Godalming Business Centre - Lead Generation</p>
+            <p>Godalming Business Centre - Lead Generation <span id="last-updated" style="opacity:0.7; font-size:0.8rem; margin-left:12px;"></span></p>
         </div>
     </header>
     
@@ -418,43 +418,43 @@
         </div>
 
         <div class="tabs">
-            <button class="tab-btn active" onclick="switchTab('unit8')">Unit 8 Occupiers ({{ unit8_stats.total }})</button>
-            <button class="tab-btn" onclick="switchTab('office')">Office Occupiers ({{ office_stats.total }})</button>
+            <button class="tab-btn active" id="tab-btn-unit8" onclick="switchTab('unit8')">Unit 8 Occupiers ({{ unit8_stats.total }})</button>
+            <button class="tab-btn" id="tab-btn-office" onclick="switchTab('office')">Office Occupiers ({{ office_stats.total }})</button>
         </div>
         
         <!-- Unit 8 Tab -->
         <div id="unit8-tab" class="tab-content active">
-            <div class="stats-grid">
+            <div class="stats-grid" id="unit8-stats-grid">
                 <div class="stat-card">
-                    <div class="number">{{ unit8_stats.total }}</div>
+                    <div class="number" data-stat="unit8-total">{{ unit8_stats.total }}</div>
                     <div class="label">Total Leads</div>
                 </div>
                 <div class="stat-card">
-                    <div class="number">{{ unit8_stats.with_website }}</div>
+                    <div class="number" data-stat="unit8-with_website">{{ unit8_stats.with_website }}</div>
                     <div class="label">With Website</div>
                 </div>
                 <div class="stat-card">
-                    <div class="number">{{ unit8_stats.with_email }}</div>
+                    <div class="number" data-stat="unit8-with_email">{{ unit8_stats.with_email }}</div>
                     <div class="label">With Email</div>
                 </div>
                 <div class="stat-card">
-                    <div class="number">{{ unit8_stats.with_contact }}</div>
+                    <div class="number" data-stat="unit8-with_contact">{{ unit8_stats.with_contact }}</div>
                     <div class="label">Named Contacts</div>
                 </div>
                 <div class="stat-card">
-                    <div class="number">{{ unit8_stats.ai_enriched }}</div>
+                    <div class="number" data-stat="unit8-ai_enriched">{{ unit8_stats.ai_enriched }}</div>
                     <div class="label">AI Enriched</div>
                 </div>
                 <div class="stat-card">
-                    <div class="number">{{ unit8_stats.avg_score }}</div>
+                    <div class="number" data-stat="unit8-avg_score">{{ unit8_stats.avg_score }}</div>
                     <div class="label">Avg Score</div>
                 </div>
                 <div class="stat-card">
-                    <div class="number">{{ unit8_stats.avg_confidence }}</div>
+                    <div class="number" data-stat="unit8-avg_confidence">{{ unit8_stats.avg_confidence }}</div>
                     <div class="label">Avg Confidence</div>
                 </div>
                 <div class="stat-card">
-                    <div class="number" style="color:#92400e;">{{ unit8_stats.name_review }}</div>
+                    <div class="number" style="color:#92400e;" data-stat="unit8-name_review">{{ unit8_stats.name_review }}</div>
                     <div class="label">Need Review</div>
                 </div>
             </div>
@@ -562,37 +562,37 @@
         
         <!-- Office Tab -->
         <div id="office-tab" class="tab-content">
-            <div class="stats-grid">
+            <div class="stats-grid" id="office-stats-grid">
                 <div class="stat-card">
-                    <div class="number">{{ office_stats.total }}</div>
+                    <div class="number" data-stat="office-total">{{ office_stats.total }}</div>
                     <div class="label">Total Leads</div>
                 </div>
                 <div class="stat-card">
-                    <div class="number" style="color:#059669;">{{ office_stats.geo_local }}</div>
+                    <div class="number" style="color:#059669;" data-stat="office-geo_local">{{ office_stats.geo_local }}</div>
                     <div class="label">Local</div>
                 </div>
                 <div class="stat-card">
-                    <div class="number" style="color:#92400e;">{{ office_stats.geo_review }}</div>
+                    <div class="number" style="color:#92400e;" data-stat="office-geo_review">{{ office_stats.geo_review }}</div>
                     <div class="label">Review</div>
                 </div>
                 <div class="stat-card">
-                    <div class="number" style="color:#991b1b;">{{ office_stats.geo_exclude }}</div>
+                    <div class="number" style="color:#991b1b;" data-stat="office-geo_exclude">{{ office_stats.geo_exclude }}</div>
                     <div class="label">Excluded</div>
                 </div>
                 <div class="stat-card">
-                    <div class="number">{{ office_stats.with_email }}</div>
+                    <div class="number" data-stat="office-with_email">{{ office_stats.with_email }}</div>
                     <div class="label">With Email</div>
                 </div>
                 <div class="stat-card">
-                    <div class="number">{{ office_stats.with_contact }}</div>
+                    <div class="number" data-stat="office-with_contact">{{ office_stats.with_contact }}</div>
                     <div class="label">Named Contacts</div>
                 </div>
                 <div class="stat-card">
-                    <div class="number">{{ office_stats.with_website }}</div>
+                    <div class="number" data-stat="office-with_website">{{ office_stats.with_website }}</div>
                     <div class="label">With Website</div>
                 </div>
                 <div class="stat-card">
-                    <div class="number">{{ office_stats.avg_score }}</div>
+                    <div class="number" data-stat="office-avg_score">{{ office_stats.avg_score }}</div>
                     <div class="label">Avg Score</div>
                 </div>
             </div>
@@ -962,6 +962,40 @@
 
         pollStatus();
         startStatusPolling();
+
+        function refreshStats() {
+            fetch('/api/stats')
+                .then(r => r.json())
+                .then(data => {
+                    const u = data.unit8 || {};
+                    const o = data.office || {};
+                    const statMap = {
+                        'unit8-total': u.total, 'unit8-with_website': u.with_website,
+                        'unit8-with_email': u.with_email, 'unit8-with_contact': u.with_contact,
+                        'unit8-ai_enriched': u.ai_enriched, 'unit8-avg_score': u.avg_score,
+                        'unit8-avg_confidence': u.avg_confidence, 'unit8-name_review': u.name_review,
+                        'office-total': o.total, 'office-geo_local': o.geo_local,
+                        'office-geo_review': o.geo_review, 'office-geo_exclude': o.geo_exclude,
+                        'office-with_email': o.with_email, 'office-with_contact': o.with_contact,
+                        'office-with_website': o.with_website, 'office-avg_score': o.avg_score,
+                    };
+                    for (const [key, val] of Object.entries(statMap)) {
+                        const el = document.querySelector('[data-stat="' + key + '"]');
+                        if (el && val !== undefined) el.textContent = val;
+                    }
+                    const u8btn = document.getElementById('tab-btn-unit8');
+                    const obtn = document.getElementById('tab-btn-office');
+                    if (u8btn) u8btn.textContent = 'Unit 8 Occupiers (' + (u.total || 0) + ')';
+                    if (obtn) obtn.textContent = 'Office Occupiers (' + (o.total || 0) + ')';
+                    const ts = new Date().toLocaleTimeString();
+                    const upd = document.getElementById('last-updated');
+                    if (upd) upd.textContent = 'Last updated: ' + ts;
+                })
+                .catch(() => {});
+        }
+
+        setInterval(refreshStats, 60000);
+        refreshStats();
     </script>
 </body>
 </html>

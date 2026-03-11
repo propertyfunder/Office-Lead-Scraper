@@ -17,6 +17,8 @@ INPUT_FILE = "office_leads.csv"
 OUTPUT_FILE = "office_leads.csv"
 PLACES_API_KEY = os.environ.get("GOOGLE_MAPS_API_KEY", "")
 
+from config import PLACES_API_DAILY_LIMIT
+
 TEAM_PAGE_PATTERNS = [
     "/team", "/about-us", "/about", "/our-team", "/people",
     "/staff", "/who-we-are", "/meet-the-team", "/contact",
@@ -67,16 +69,30 @@ def phase2_website_discovery(leads):
     import requests as req
     if not PLACES_API_KEY:
         print("  SKIP: GOOGLE_MAPS_API_KEY not set — cannot do Places lookup")
-        return 0
+        return 0, 0
 
     targets = [l for l in leads if not l.website or not l.website.strip()]
     print(f"\n{'='*60}")
     print("PHASE 2: Website Discovery (Google Places)")
     print(f"{'='*60}")
     print(f"  Records missing website: {len(targets)}")
+    print(f"  Daily Places limit: {PLACES_API_DAILY_LIMIT}")
 
     found = 0
+    places_calls = 0
     for i, lead in enumerate(targets, 1):
+        if not lead.website or not lead.website.strip():
+            pass
+        else:
+            continue
+
+        if places_calls >= PLACES_API_DAILY_LIMIT:
+            remaining = len(targets) - i + 1
+            print(f"  [CAP] Reached {PLACES_API_DAILY_LIMIT} Places calls — skipping {remaining} remaining")
+            for skip_lead in targets[i-1:]:
+                skip_lead.missing_email = "true"
+            break
+
         query = f"{lead.company_name}"
         if lead.location:
             loc_part = lead.location.split(',')[0].strip()
@@ -84,6 +100,7 @@ def phase2_website_discovery(leads):
 
         try:
             rate_limit(0.3, 0.5)
+            places_calls += 1
             r = req.post(
                 "https://places.googleapis.com/v1/places:searchText",
                 headers={
@@ -98,9 +115,9 @@ def phase2_website_discovery(leads):
                 continue
 
             data = r.json()
-            places = data.get("places", [])
+            place_results = data.get("places", [])
 
-            best = _find_best_place(lead.company_name, places)
+            best = _find_best_place(lead.company_name, place_results)
             if best:
                 website = best.get("websiteUri", "")
                 if website:
@@ -131,7 +148,9 @@ def phase2_website_discovery(leads):
             print(f"  [{i}/{len(targets)}] {lead.company_name} -> ERROR: {e}")
 
     print(f"  Website discovery: found {found} out of {len(targets)}")
-    return found
+    print(f"  Places API calls this run: {places_calls}")
+    print(f"  Estimated cost: \u00a3{places_calls * 0.019:.2f} (@ \u00a30.019/call)")
+    return found, places_calls
 
 
 def _find_best_place(company_name, places):
@@ -486,7 +505,7 @@ def phase4_geo_classify(leads):
     return classified
 
 
-def print_summary(leads, email_stats, geo_stats, places_found):
+def print_summary(leads, email_stats, geo_stats, places_found, places_calls=0):
     print(f"\n{'='*60}")
     print("OFFICE ENRICHMENT COMPLETE")
     print(f"{'='*60}")
@@ -511,6 +530,8 @@ def print_summary(leads, email_stats, geo_stats, places_found):
     print(f"  Emails guessed:             {with_guessed}")
     print(f"  Still missing email:        {still_missing}")
     print(f"  Geo classified:             {geo_local} local / {geo_review} review / {geo_exclude} exclude")
+    print(f"  Places API calls this run:  {places_calls}")
+    print(f"  Estimated cost:             \u00a3{places_calls * 0.019:.2f} (@ \u00a30.019/call)")
     print(f"  {OUTPUT_FILE} saved.")
 
     status_counts = {}
@@ -545,7 +566,7 @@ def main():
     print(f"  Already have email: {already_have_email}")
     print(f"  Missing website: {missing_website}")
 
-    places_found = phase2_website_discovery(leads)
+    places_found, places_calls = phase2_website_discovery(leads)
     save_leads(leads, fieldnames)
     print(f"  [Checkpoint] Saved after Phase 2")
 
@@ -562,7 +583,7 @@ def main():
     secs = elapsed % 60
     print(f"\n  Duration: {mins}m {secs}s")
 
-    print_summary(leads, email_stats, geo_stats, places_found)
+    print_summary(leads, email_stats, geo_stats, places_found, places_calls)
 
 
 if __name__ == "__main__":
