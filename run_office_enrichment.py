@@ -80,6 +80,7 @@ def phase2_website_discovery(leads):
 
     found = 0
     places_calls = 0
+    tier_counts = {1: 0, 2: 0, 3: 0}
     for i, lead in enumerate(targets, 1):
         if not lead.website or not lead.website.strip():
             pass
@@ -105,7 +106,7 @@ def phase2_website_discovery(leads):
                 "https://places.googleapis.com/v1/places:searchText",
                 headers={
                     "X-Goog-Api-Key": PLACES_API_KEY,
-                    "X-Goog-FieldMask": "places.displayName,places.websiteUri,places.nationalPhoneNumber,places.rating,places.userRatingCount",
+                    "X-Goog-FieldMask": "places.displayName,places.websiteUri,places.nationalPhoneNumber,places.rating,places.userRatingCount,places.formattedAddress",
                 },
                 json={"textQuery": query, "maxResultCount": 3},
                 timeout=15,
@@ -117,14 +118,21 @@ def phase2_website_discovery(leads):
             data = r.json()
             place_results = data.get("places", [])
 
-            best = _find_best_place(lead.company_name, place_results)
+            best, tier = _find_best_place(
+                lead.company_name, place_results, lead.location, lead.contact_name
+            )
             if best:
+                tier_counts[tier] += 1
+                existing_notes = lead.refinement_notes or ""
+                note = f"places_match:tier{tier}"
+                lead.refinement_notes = f"{existing_notes}; {note}".strip("; ") if existing_notes else note
+
                 website = best.get("websiteUri", "")
                 if website:
                     lead.website = website
                     lead.enrichment_source = (lead.enrichment_source or "") + ";places_lookup"
                     found += 1
-                    print(f"  [{i}/{len(targets)}] {lead.company_name} -> {website}")
+                    print(f"  [{i}/{len(targets)}] {lead.company_name} -> {website} [tier{tier}]")
 
                     phone = best.get("nationalPhoneNumber", "")
                     if phone and not lead.phone:
@@ -138,7 +146,7 @@ def phase2_website_discovery(leads):
                             rating_str += f" ({review_count} reviews)"
                         lead.google_rating = rating_str
                 else:
-                    print(f"  [{i}/{len(targets)}] {lead.company_name} -> no website in Places result")
+                    print(f"  [{i}/{len(targets)}] {lead.company_name} -> matched [tier{tier}] but no website")
                     lead.missing_email = "true"
             else:
                 print(f"  [{i}/{len(targets)}] {lead.company_name} -> no match")
@@ -147,28 +155,76 @@ def phase2_website_discovery(leads):
         except Exception as e:
             print(f"  [{i}/{len(targets)}] {lead.company_name} -> ERROR: {e}")
 
+    no_match = len(targets) - sum(tier_counts.values())
     print(f"  Website discovery: found {found} out of {len(targets)}")
+    print(f"  Match breakdown:  tier1={tier_counts[1]}  tier2={tier_counts[2]}  tier3={tier_counts[3]}  no_match={no_match}")
     print(f"  Places API calls this run: {places_calls}")
     print(f"  Estimated cost: \u00a3{places_calls * 0.019:.2f} (@ \u00a30.019/call)")
     return found, places_calls
 
 
-def _find_best_place(company_name, places):
-    cn_lower = company_name.lower().strip()
-    cn_words = set(re.sub(r'[^a-z0-9\s]', '', cn_lower).split())
-    cn_words -= {"ltd", "limited", "plc", "llp", "uk", "the", "and"}
+_PLACES_STOP_WORDS = {"ltd", "limited", "plc", "llp", "uk", "the", "and", "co", "group"}
+_GU_RE = re.compile(r'\bGU\d{1,2}\b', re.I)
 
+
+def _clean_name_words(name):
+    return set(re.sub(r'[^a-z0-9\s]', '', name.lower().strip()).split()) - _PLACES_STOP_WORDS
+
+
+def _address_plausible(place, lead_location):
+    addr = (place.get("formattedAddress", "") or "").lower()
+    if _GU_RE.search(addr):
+        return True
+    if lead_location:
+        first_word = lead_location.split(',')[0].strip().split()
+        if first_word and len(first_word[0]) > 2 and first_word[0].lower() in addr:
+            return True
+    return False
+
+
+def _find_best_place(company_name, places, lead_location="", contact_name=""):
+    """
+    Three-tier Places matching. Returns (best_match_dict, tier_int) or (None, None).
+
+    Tier 1 — word overlap ≥50% (primary, no address guard needed).
+    Tier 2 — single meaningful token (≥4 chars) shared between names + plausible address.
+    Tier 3 — director surname in Places display name + plausible address.
+    """
+    cn_words = _clean_name_words(company_name)
+
+    # Tier 1: word overlap ≥50%
     for place in places:
         display = (place.get("displayName", {}).get("text", "") or "").lower()
-        display_words = set(re.sub(r'[^a-z0-9\s]', '', display).split())
-        display_words -= {"ltd", "limited", "plc", "llp", "uk", "the", "and"}
+        display_words = _clean_name_words(display)
         if not cn_words or not display_words:
             continue
         overlap = cn_words & display_words
         score = len(overlap) / max(len(cn_words), 1)
         if score >= 0.5:
-            return place
-    return None
+            return place, 1
+
+    # Tier 2: single meaningful token match + plausible address
+    cn_meaningful = {w for w in cn_words if len(w) >= 4}
+    if cn_meaningful:
+        for place in places:
+            display = (place.get("displayName", {}).get("text", "") or "").lower()
+            display_words = _clean_name_words(display)
+            display_meaningful = {w for w in display_words if len(w) >= 4}
+            if cn_meaningful & display_meaningful and _address_plausible(place, lead_location):
+                return place, 2
+
+    # Tier 3: director surname in Places display name + plausible address
+    if contact_name and contact_name.strip():
+        parts = contact_name.strip().split()
+        if parts:
+            surname = parts[-1].lower()
+            if len(surname) >= 4:
+                for place in places:
+                    display = (place.get("displayName", {}).get("text", "") or "").lower()
+                    if surname in display and _address_plausible(place, lead_location):
+                        return place, 3
+
+    return None, None
 
 
 def phase3_email_enrichment(leads):

@@ -1,0 +1,18 @@
+Improve Places matching in run_office_enrichment.py to handle trading names / t/a situations
+In run_office_enrichment.py, the _find_best_place() function currently uses a simple 50% word overlap between the CH registered name and the Places display name. This silently fails when a company trades under a different name — e.g. CH has "J. Smith Consulting Ltd" but Places knows the business as "Smith Strategic". We need a smarter fallback that can catch these cases without generating false positives.
+Do the following:
+1. Read the current _find_best_place() function in run_office_enrichment.py so you understand exactly what it does before changing anything.
+2. Replace the matching logic with a three-tier approach, tried in order:
+
+Tier 1 — word overlap (existing logic, unchanged): Strip stop words (ltd, limited, plc, llp, uk, the, and, &, co, group) from both names, compute word overlap, accept if ≥50%. This handles the common case and must remain the primary path.
+Tier 2 — substring / token containment: If Tier 1 fails, check whether any meaningful word (≥4 characters, not a stop word) from the CH name appears in the Places display name, OR vice versa. Accept if there's at least one such shared token AND the Places result address contains a GU postcode or matches the first word of lead.location. This guards against false positives from single-word name collisions by requiring the address to also be plausible.
+Tier 3 — director name match: If Tiers 1 and 2 both fail, and lead.contact_name is populated, check whether the director's surname appears in the Places display name (case-insensitive). Again require the Places address to contain a GU postcode or match lead.location's first word. This catches sole traders who register a company under their own name but trade under their name directly (e.g. CH: "John Harrison Consulting Ltd", Places: "Harrison & Co").
+
+3. Log the tier used when a match is found. Append to lead.refinement_notes with a tag like places_match:tier1, places_match:tier2, or places_match:tier3 so we can audit which records needed the fallback logic.
+4. Do not change anything else — the cap logic (PLACES_API_DAILY_LIMIT), the fields populated (website, phone, google_rating), the checkpoint save after Phase 2, or the cost logging. Only _find_best_place() and its call site change.
+5. After making the change, print a brief summary to stdout showing: how many leads were processed in Phase 2, how many matched on each tier, and how many still had no match. Do not run a full enrichment pass — just confirm the logic compiles and the summary print statement is in place.
+Constraints:
+
+The GU postcode check for Tiers 2/3 should use the same _is_gu_postcode() helper already available from the CH scraper, or a simple regex — don't over-engineer it.
+Tier 2 and 3 are fallbacks only — if Tier 1 matches, stop there. Don't run all three tiers on every record.
+_find_best_place() should return a tuple of (best_match, tier_used) or handle the note internally — whichever is cleaner given the existing function signature. Don't break the call site.

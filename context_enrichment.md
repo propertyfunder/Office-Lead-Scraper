@@ -18,7 +18,19 @@ Two enrichment pipelines exist for the office dataset:
 
 **Why it's Phase 2 not Phase 1**: Phase 1 was the CH sweep itself. The enrichment script picks up where the sweep left off.
 
-**Matching logic (`_find_best_place`)**: Strips company name and Places display name of stop words (`ltd`, `limited`, `plc`, `llp`, `uk`, `the`, `and`), then computes word overlap. A result is accepted if it shares ≥50% of the company name's words. This is a loose heuristic — it catches obvious matches without requiring exact name equality.
+**Matching logic (`_find_best_place`)**: Three-tier cascade, tried in order. Returns `(best_match_dict, tier_int)` or `(None, None)`. Stop words stripped from all name comparisons: `ltd, limited, plc, llp, uk, the, and, co, group`.
+
+| Tier | Condition | Address guard |
+|---|---|---|
+| **1** | Word overlap ≥50% between CH name and Places display name | None — high confidence match |
+| **2** | At least one meaningful word (≥4 chars, not a stop word) shared between names | Required — Places `formattedAddress` must contain a GU postcode (`GU\d{1,2}`) OR the first word of `lead.location` must appear in the address |
+| **3** | Director surname (from `lead.contact_name`, must be ≥4 chars) found in Places display name | Same address guard as Tier 2 |
+
+Tiers 2 and 3 exist specifically to handle trading-name situations (e.g. CH: `"J. Smith Consulting Ltd"` but Places knows the business as `"Smith Strategic"`). The address guard is mandatory on fallback tiers to prevent false positives from single-word name collisions across unrelated companies.
+
+The Places API field mask was updated to include `places.formattedAddress` so the address guard can function. This field is fetched but never stored on the lead.
+
+On a match, `lead.refinement_notes` gets a tag `places_match:tier1`, `places_match:tier2`, or `places_match:tier3` for auditability. The per-run summary prints tier breakdown: `tier1=N  tier2=N  tier3=N  no_match=N`.
 
 **Daily cap**: `PLACES_API_DAILY_LIMIT = 500` (set in `config.py`). The function tracks `places_calls` and breaks when the cap is reached. All leads that would have been processed but weren't are marked `missing_email = "true"`. **Cost: ~£0.019/call** (logged at end of run).
 
