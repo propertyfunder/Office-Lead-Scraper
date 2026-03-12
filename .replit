@@ -38,6 +38,10 @@ args = "Email Rescrape"
 task = "workflow.run"
 args = "JS Email Scrape"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Website Discovery Test"
+
 [[workflows.workflow]]
 name = "Dashboard"
 author = "agent"
@@ -104,6 +108,17 @@ outputType = "console"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "python run_js_scrape.py --run --limit 500"
+
+[[workflows.workflow]]
+name = "Website Discovery Test"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python run_website_discovery_test.py"
+
+[workflows.workflow.metadata]
+outputType = "console"
 
 [[ports]]
 localPort = 5000

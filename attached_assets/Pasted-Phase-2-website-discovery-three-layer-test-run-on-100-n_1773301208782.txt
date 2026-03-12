@@ -1,0 +1,95 @@
+Phase 2 website discovery — three-layer test run on 100 no-website leads
+The CH sweep is complete with 7,000+ records but most have only company_name, contact_name (director), location, and sector populated — no website, no email. We need to find websites before we can do anything useful with these records. Before running at scale, we want to test a three-layer discovery approach on 100 leads and measure what each layer contributes.
+Do not touch office_leads.csv during this test. Work from a copy.
+
+Setup
+Read office_leads.csv and extract the first 100 records where:
+
+website is empty or blank
+enrichment_source does not contain places_lookup
+company_name is populated
+
+Save these 100 records to test_website_discovery.csv as your working file. All results go here — do not modify office_leads.csv at any point during this test.
+
+Layer 1 — Domain inference (free, no API)
+For each of the 100 leads, attempt to guess the website domain directly from the company name:
+
+Strip legal suffixes: Ltd, Limited, LLP, PLC, & Co, and Co, Group, UK, (UK)
+Strip punctuation, collapse spaces to hyphens, lowercase
+Try these domain patterns in order: .co.uk, .com, .uk
+For each candidate, send a HEAD request with a 5-second timeout. Follow redirects. Accept if HTTP 200 or 301/302 (i.e. the domain resolves and doesn't 404)
+If a domain resolves, store it in website, append layer1_domain_inference to enrichment_source, and move to the next lead — do not try Layers 2 or 3
+
+Log each attempt: company name → candidates tried → result (hit/miss).
+
+Layer 2 — Google Places Text Search
+For leads that Layer 1 didn't resolve:
+
+Query: "{company_name} {first word of location}" — same as current Phase 2 logic
+Use the existing _find_best_place() matching logic (word overlap)
+If a match is found with a websiteUri, store it and append layer2_places to enrichment_source
+Hard cap: 60 Places calls maximum for this test run (to control cost — ~£1.14)
+Track the daily persistent counter in /tmp/places_daily_count.json as per the existing fix
+
+
+Layer 3 — OpenAI name normalisation → Places retry
+For leads that failed Layer 2 (no Places match found, not cap-related):
+
+Call GPT-4o-mini with this prompt:
+
+"A UK company is registered at Companies House as '{company_name}' in '{location}'. What is the most likely trading name or brand name this business would use publicly? Return only the trading name, nothing else."
+
+
+If the returned trading name differs meaningfully from the CH name (>2 words different or clearly distinct), retry the Places query using the trading name instead
+If a match is found this time, store the website and append layer3_openai_places to enrichment_source
+Hard cap: 40 OpenAI calls for this test (cost negligible — <$0.05)
+If Layer 3 also fails, leave website blank and append places_exhausted to enrichment_source — do not retry this lead in future runs
+
+
+Reporting — this is the most important part
+After all 100 leads are processed, print a detailed performance report:
+=== WEBSITE DISCOVERY TEST REPORT (100 leads) ===
+
+LAYER 1 — Domain inference (free)
+  Attempted:   [n]
+  Hits:        [n] ([%])
+  Misses:      [n]
+  Top 5 hits:  [company | domain found]
+  Top 5 misses:[company | candidates tried]
+
+LAYER 2 — Google Places
+  Attempted:   [n] (of [n] Layer 1 misses)
+  Cap hits:    [n]
+  Hits:        [n] ([%] of attempted)
+  Misses:      [n]
+  Cost:        £[n] ([n] calls @ £0.019)
+
+LAYER 3 — OpenAI + Places retry  
+  Attempted:   [n] (of [n] Layer 2 misses)
+  OpenAI suggested different name: [n]
+  Of those, Places then matched:   [n] ([%])
+  Still unresolved after Layer 3:  [n]
+  Sample trading name suggestions: [CH name → OpenAI suggestion] (5 examples)
+
+OVERALL
+  Resolved:    [n]/100 ([%])
+  Unresolved:  [n]/100 ([%])
+  Layer 1 share of resolved: [%]
+  Layer 2 share of resolved: [%]
+  Layer 3 share of resolved: [%]
+  Total cost:  £[n]
+  
+PROJECTED FULL RUN (~[n] no-website leads remaining)
+  Expected resolved at current hit rate: [n] ([%])
+  Estimated Places calls needed:         [n]
+  Estimated Places cost:                 £[n]
+  Estimated OpenAI cost:                 $[n]
+  Estimated total cost:                  £[n]
+Also flag any patterns in the misses — are they predominantly: holding companies, very new incorporations, specific sectors, or unusual name formats? This will help us decide whether to adjust the domain inference logic or OpenAI prompt before the full run.
+
+Constraints
+
+Do not modify office_leads.csv at any point
+Atomic saves on test_website_discovery.csv throughout
+If the test is interrupted, it must be resumable — skip leads already in test_website_discovery.csv with a resolved website or places_exhausted marker
+Print progress to stdout every 10 leads: [n/100] Layer [n] — {company_name} → {result}
