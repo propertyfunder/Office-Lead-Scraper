@@ -1,0 +1,119 @@
+Here’s the prompt:
+
+Enhanced Layer 1 domain discovery — expanded test run with content validation
+Following the initial 100-lead test (23% overall hit rate, Layer 1 responsible for 86% of resolved leads, Layer 3 dropped entirely), we want to improve Layer 1 before committing to the full 7,000-record run. The key risk identified is false positives — domains that resolve but belong to a different company. This test focuses purely on Layer 1 with proper content validation. Layer 2 (Places) remains available as a fallback but is capped tightly.
+Do not touch office_leads.csv. Work exclusively from a fresh test file.
+
+Setup
+Take the next 100 no-website leads from office_leads.csv that:
+	∙	Have no website
+	∙	Do not have places_exhausted or layer1_domain_inference or layer2_places in enrichment_source
+	∙	Have not already appeared in test_website_discovery.csv
+Save to test_website_discovery_v2.csv. Do not modify any other file.
+
+Layer 1 — Enhanced domain inference with content validation
+For each lead, generate candidate domains using these slug patterns in order. Try all patterns before giving up, but stop as soon as one passes content validation:
+Slug generation (apply to the cleaned company name — strip Ltd, Limited, LLP, PLC, & Co, And Co, Group, UK, (UK), punctuation):
+	1.	Full name hyphenated: the-smith-consulting-group.co.uk / .com / .uk
+	2.	Full name no separator: thesmithconsultinggroup.co.uk / .com
+	3.	Significant words only (drop words under 3 characters — of, at, in, the, and): smith-consulting-group.co.uk / .com
+	4.	Significant words no separator: smithconsultinggroup.co.uk / .com
+	5.	First two significant words only: smithconsulting.co.uk / .com
+	6.	Initials of all significant words: scg.co.uk / .com — only attempt if initials string is 3+ characters to avoid false positives
+	7.	First significant word only: smith.co.uk / .com — only attempt if that word is 6+ characters
+For each candidate, first send a HEAD request (3s timeout). If it resolves (200, 301, 302), proceed to content validation before accepting.
+Content validation (mandatory for every Layer 1 hit)
+Fetch the homepage (GET, 8s timeout, standard headers). Then check all of the following:
+	1.	Name match — does the page title, H1, or visible body text contain at least one significant word from the company name? If none appear anywhere on the page, reject.
+	2.	Parked domain check — does the page contain any of: "domain for sale", "buy this domain", "parked by", "coming soon", "under construction", "godaddy", "sedoparking", "hugedomains"? If yes, reject.
+	3.	Location plausibility — scan for GU postcode pattern (GU\d) or any of: Surrey, Godalming, Guildford, Farnham, Woking, Haslemere. If found, mark geo_signal = "confirmed". If not found, mark geo_signal = "none" — do not reject on this basis alone, just flag it.
+	4.	Minimum content threshold — if the page body text is under 100 words, flag as thin_content = true but do not reject automatically.
+Confidence scoring — assign each validated hit a domain_confidence value:
+
+
+
+|Condition                                                   |Score   |
+|------------------------------------------------------------|--------|
+|Name match + location confirmed + full slug pattern (1 or 2)|`high`  |
+|Name match + location confirmed + shortened slug (3–5)      |`high`  |
+|Name match + no location signal + full slug                 |`medium`|
+|Name match + no location signal + shortened slug            |`medium`|
+|Name match + thin content                                   |`low`   |
+|Initials or first-word-only slug + name match               |`low`   |
+
+Only accept high and medium confidence hits automatically. For low confidence hits: store the domain in a separate field domain_candidate but leave website blank and append low_confidence_domain to enrichment_source — do not use these for email generation.
+
+Layer 2 — Places fallback (tightly capped)
+For leads where Layer 1 found nothing (no valid domain at any confidence level):
+	∙	Run Places lookup as before
+	∙	Hard cap: 30 calls maximum for this test (~£0.57)
+	∙	Update /tmp/places_daily_count.json as per existing fix
+
+Reporting
+
+=== ENHANCED DOMAIN DISCOVERY TEST REPORT (100 leads) ===
+
+LAYER 1 — Enhanced domain inference
+  Leads attempted:              [n]
+  Domains that resolved (HEAD): [n]
+  Passed content validation:    [n]
+    — High confidence:          [n]
+    — Medium confidence:        [n]
+    — Low confidence (flagged): [n]
+  Rejected at content validation:[n]
+    — No name match:            [n]
+    — Parked domain:            [n]
+  
+  Slug pattern breakdown (of validated hits):
+    Pattern 1 (full hyphenated):     [n]
+    Pattern 2 (full no separator):   [n]
+    Pattern 3 (sig words hyphenated):[n]
+    Pattern 4 (sig words no sep):    [n]
+    Pattern 5 (first two words):     [n]
+    Pattern 6 (initials):            [n]
+    Pattern 7 (first word only):     [n]
+
+  False positive rate (resolved but failed validation): [n]/[n] ([%])
+  
+  Sample validated hits:    [company | slug used | confidence | geo_signal]
+  Sample rejections:        [company | domain tried | rejection reason]
+  Sample low-confidence:    [company | domain_candidate | reason for low]
+
+LAYER 2 — Places fallback
+  Attempted:   [n]
+  Hits:        [n] ([%])
+  Cost:        £[n]
+
+OVERALL
+  High/medium confidence websites found: [n]/100 ([%])
+  Low confidence candidates flagged:     [n]/100 ([%])
+  Unresolved:                            [n]/100 ([%])
+  Total cost:                            £[n]
+
+FALSE POSITIVE ANALYSIS
+  Domains that resolved but failed content validation: [n]
+  Most common rejection reason: [reason]
+  Example false positives caught: [company | domain | why rejected]
+  
+  Estimated false positive rate if we had accepted all resolving domains: [%]
+  — This is the cost of skipping content validation
+
+PROJECTED FULL RUN (~[n] no-website leads)
+  Expected high/medium confidence websites: [n] ([%])
+  Expected low-confidence candidates:       [n] (excluded from email generation)
+  Expected Places calls needed:             [n]
+  Estimated total cost:                     £[n]
+
+RECOMMENDATIONS
+  [Agent to summarise: which slug patterns are worth keeping, which to drop,
+   whether the confidence thresholds look right, and any patterns in the
+   rejections that suggest further refinement]
+
+
+Constraints
+	∙	Never write to office_leads.csv
+	∙	Atomic saves on test_website_discovery_v2.csv throughout
+	∙	Resumable if interrupted — skip leads already processed in v2 file
+	∙	Print progress every 10 leads: [n/100] {company_name} → {result} ({confidence})
+	∙	HEAD timeout: 3s. GET timeout: 8s. Rate limit: 0.5s between requests
+	∙	If a GET request for content validation fails (timeout, connection error), treat as rejected — do not accept on HEAD alone​​​​​​​​​​​​​​​​

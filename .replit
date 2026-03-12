@@ -113,12 +113,12 @@ args = "python run_js_scrape.py --run --limit 500"
 name = "Website Discovery Test"
 author = "agent"
 
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "python run_website_discovery_test.py"
-
 [workflows.workflow.metadata]
 outputType = "console"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python run_website_discovery_v2.py"
 
 [[ports]]
 localPort = 5000
